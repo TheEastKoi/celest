@@ -8,11 +8,10 @@
     "skipLibCheck": true,
     "outDir": "out",
     "rootDir": "src",
-    "jsx": "react-jsx",
     "declaration": true,
     "sourceMap": true,
     "types": ["node", "vscode"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "out", "dist", "gui"]
 }
