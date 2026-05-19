@@ -9,7 +9,7 @@
         </main>
 
         <footer class="input-area">
-            <InputBox @send="handleSend" />
+            <InputBox @send="handleSend" :disabled="promptRunning" />
         </footer>
 
         <ContextBar />
@@ -17,18 +17,57 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import ChatView from './components/ChatView.vue';
 import InputBox from './components/InputBox.vue';
 import ContextBar from './components/ContextBar.vue';
 
+declare function acquireVsCodeApi(): any;
+const vscode = acquireVsCodeApi?.();
+
 const chatRef = ref<InstanceType<typeof ChatView>>();
+const promptRunning = ref(false);
 
 function handleSend(prompt: string) {
     chatRef.value?.addUserMessage(prompt);
-    // Phase 2: 通过 vscode.postMessage 转发给 TUI 后端
-    window.vscode?.postMessage({ type: 'sendPrompt', prompt });
+    promptRunning.value = true;
+    vscode?.postMessage({ type: 'sendPrompt', prompt });
 }
+
+// 监听来自扩展主机的消息
+onMounted(() => {
+    window.addEventListener('message', (e) => {
+        const msg = e.data;
+        switch (msg.type) {
+            case 'tuiEvent':
+                if (msg.event === 'sessionUpdate' && msg.update?.content?.text) {
+                    chatRef.value?.addAssistantPart({
+                        type: 'text',
+                        content: msg.update.content.text,
+                    });
+                }
+                break;
+            case 'promptStarted':
+                promptRunning.value = true;
+                break;
+            case 'promptEnded':
+                promptRunning.value = false;
+                break;
+            case 'promptError':
+                promptRunning.value = false;
+                chatRef.value?.addAssistantPart({
+                    type: 'text',
+                    content: `⚠️ Error: ${msg.error}`,
+                });
+                break;
+            case 'clearChat':
+                // ChatView exposed methods handle clear
+                break;
+        }
+    });
+
+    vscode?.postMessage({ type: 'ready' });
+});
 </script>
 
 <style scoped>

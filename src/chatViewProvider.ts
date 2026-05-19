@@ -1,21 +1,27 @@
 import * as vscode from 'vscode';
 import { TuiProcessManager } from './tuiProcessManager';
 
-/**
- * WebView 聊天面板 Provider。
- * 管理 WebView 生命周期，加载 gui/dist 的 Vue 应用。
- */
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
 
     constructor(
         private context: vscode.ExtensionContext,
         private tuiManager: TuiProcessManager,
-    ) {}
+    ) {
+        // 监听 TUI 事件，转发到 WebView
+        this.tuiManager.onEvent(event => {
+            if (event.type === 'sessionUpdate') {
+                this.postMessage({
+                    type: 'tuiEvent',
+                    event: 'sessionUpdate',
+                    update: event.update,
+                });
+            }
+        });
+    }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this._view = webviewView;
-
         const guiDir = vscode.Uri.joinPath(this.context.extensionUri, 'out', 'gui');
 
         webviewView.webview.options = {
@@ -25,12 +31,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.html = this.getGuiHtml(webviewView.webview, guiDir);
 
-        webviewView.webview.onDidReceiveMessage(msg => {
-            this.handleWebviewMessage(msg);
-        });
+        webviewView.webview.onDidReceiveMessage(msg => this.handleWebviewMessage(msg));
     }
 
-    /** 向 WebView 发送消息 */
     postMessage(message: unknown): void {
         this._view?.webview.postMessage(message);
     }
@@ -51,31 +54,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.postMessage({ type: 'clearChat' });
     }
 
-    private handleWebviewMessage(msg: any): void {
+    private async handleWebviewMessage(msg: any): Promise<void> {
         switch (msg.type) {
             case 'sendPrompt':
-                // Phase 2: 转发到 TUI process
-                console.log('[Celest] sendPrompt:', msg.prompt?.slice(0, 50));
+                try {
+                    this.postMessage({ type: 'promptStarted' });
+                    await this.tuiManager.sendPrompt(msg.prompt);
+                    this.postMessage({ type: 'promptEnded', stopReason: 'end_turn' });
+                } catch (err: any) {
+                    this.postMessage({ type: 'promptError', error: err.message });
+                }
+                break;
+            case 'cancelPrompt':
+                await this.tuiManager.cancel();
                 break;
             case 'approvalDecision':
-                // Phase 4: 转发审批决定
                 break;
             case 'ready':
                 console.log('[Celest] GUI ready');
+                this.postMessage({
+                    type: 'tuiConnected',
+                    sessionId: this.tuiManager.sessionId,
+                });
                 break;
-            default:
-                console.warn('[Celest] Unknown WebView message:', msg.type);
         }
     }
 
-    /** 加载 Vue 3 构建产物的 HTML */
     private getGuiHtml(webview: vscode.Webview, guiDir: vscode.Uri): string {
-        // Vite 构建输出: gui/dist/index.html + assets/
-        // 构建脚本将其复制到 out/gui/
-        const indexPath = vscode.Uri.joinPath(guiDir, 'index.html');
         const scriptUri = vscode.Uri.joinPath(guiDir, 'assets', 'index.js');
         const cssUri = vscode.Uri.joinPath(guiDir, 'assets', 'index.css');
-
         const scriptWebviewUri = webview.asWebviewUri(scriptUri);
         const cssWebviewUri = webview.asWebviewUri(cssUri);
 
@@ -83,27 +90,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource};">
     <link rel="stylesheet" href="${cssWebviewUri}">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: var(--vscode-font-family, -apple-system, sans-serif);
-            color: var(--vscode-foreground);
-            background: var(--vscode-editor-background);
-            overflow: hidden;
-        }
-        #app { height: 100vh; }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:var(--vscode-font-family,sans-serif);color:var(--vscode-foreground);background:var(--vscode-editor-background);overflow:hidden}
+        #app{height:100vh}
     </style>
 </head>
 <body>
-    <div id="app">
-        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--vscode-descriptionForeground)">
-            Loading Celest...
-        </div>
-    </div>
+    <div id="app"><div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--vscode-descriptionForeground)">Loading Celest...</div></div>
     <script src="${scriptWebviewUri}"></script>
 </body>
 </html>`;
