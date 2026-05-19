@@ -1,0 +1,224 @@
+{
+  "name": "celest",
+  "author": "TheEastKoi",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheEastKoi/celest"
+  },
+  "extensionKind": ["ui", "workspace"],
+  "license": "Apache-2.0",
+  "displayName": "Celest",
+  "description": "DeepSeek V4 powered AI coding agent for VS Code",
+  "publisher": "TheEastKoi",
+  "engines": {
+    "vscode": "^1.70.0",
+    "node": ">=18.0.0"
+  },
+  "categories": ["AI", "Chat", "Machine Learning"],
+  "keywords": ["deepseek", "ai", "agent", "coding", "celest"],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:celest.chatPanel"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Celest",
+      "properties": {
+        "celest.apiBase": {
+          "type": "string",
+          "default": "https://api.deepseek.com",
+          "description": "DeepSeek API base URL"
+        },
+        "celest.defaultModel": {
+          "type": "string",
+          "default": "deepseek-v4-flash",
+          "description": "Default model for new sessions"
+        },
+        "celest.autoDownloadBinary": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically download deepseek-tui binary on first use"
+        },
+        "celest.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to deepseek-tui binary (leave empty for auto-download)"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "celest.newSession",
+        "category": "Celest",
+        "title": "New Session",
+        "icon": "$(add)"
+      },
+      {
+        "command": "celest.viewHistory",
+        "category": "Celest",
+        "title": "View History",
+        "icon": "$(history)"
+      },
+      {
+        "command": "celest.openSettings",
+        "category": "Celest",
+        "title": "Open Settings",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "celest.focusInput",
+        "category": "Celest",
+        "title": "Focus Chat Input"
+      },
+      {
+        "command": "celest.addToChat",
+        "category": "Celest",
+        "title": "Add to Celest Chat",
+        "icon": "$(add)"
+      },
+      {
+        "command": "celest.clearChat",
+        "category": "Celest",
+        "title": "Clear Chat",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "celest.applyCode",
+        "category": "Celest",
+        "title": "Apply Code from Chat"
+      },
+      {
+        "command": "celest.acceptDiff",
+        "category": "Celest",
+        "title": "Accept Diff"
+      },
+      {
+        "command": "celest.rejectDiff",
+        "category": "Celest",
+        "title": "Reject Diff",
+        "icon": "$(stop)"
+      },
+      {
+        "command": "celest.shareSession",
+        "category": "Celest",
+        "title": "Share Session as Markdown"
+      },
+      {
+        "command": "celest.openInNewWindow",
+        "category": "Celest",
+        "title": "Open in New Window"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "celest.focusInput",
+        "mac": "cmd+l",
+        "key": "ctrl+l"
+      },
+      {
+        "command": "celest.addToChat",
+        "mac": "cmd+shift+l",
+        "key": "ctrl+shift+l"
+      },
+      {
+        "command": "celest.applyCode",
+        "mac": "alt+a",
+        "key": "alt+a"
+      },
+      {
+        "command": "celest.acceptDiff",
+        "mac": "shift+cmd+enter",
+        "key": "shift+ctrl+enter",
+        "when": "celest.diffVisible"
+      },
+      {
+        "command": "celest.rejectDiff",
+        "mac": "shift+cmd+backspace",
+        "key": "shift+ctrl+backspace",
+        "when": "celest.diffVisible"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "celest",
+          "title": "Celest",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "celest": [
+        {
+          "id": "celest.chatPanel",
+          "type": "webview",
+          "name": "Chat"
+        },
+        {
+          "id": "celest.sessionsList",
+          "type": "tree",
+          "name": "Sessions"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        { "command": "celest.newSession" },
+        { "command": "celest.focusInput" },
+        { "command": "celest.openSettings" }
+      ],
+      "editor/context": [
+        {
+          "command": "celest.addToChat",
+          "group": "celest@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "celest.addToChat",
+          "group": "celest@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "celest.newSession",
+          "group": "navigation@1",
+          "when": "view == celest.chatPanel"
+        },
+        {
+          "command": "celest.viewHistory",
+          "group": "navigation@2",
+          "when": "view == celest.chatPanel"
+        },
+        {
+          "command": "celest.openSettings",
+          "group": "navigation@3",
+          "when": "view == celest.chatPanel"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/vscode": "1.70",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.0.0"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^8.0.7"
+  }
+}
