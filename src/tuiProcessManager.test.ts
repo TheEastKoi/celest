@@ -24,7 +24,7 @@ describe('TuiProcessManager', () => {
     it('should throw when sending prompt without connection', async () => {
         const context = { subscriptions: [], globalStorageUri: { fsPath: '/tmp' } } as any;
         const manager = new TuiProcessManager(context);
-        await expect(manager.sendPrompt('hello')).rejects.toThrow('not connected');
+        await expect(manager.sendPrompt('hello')).rejects.toThrow('TUI not yet connected');
     });
 
     it('cancel() should not throw when not connected', async () => {
