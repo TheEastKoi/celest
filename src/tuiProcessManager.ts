@@ -10,12 +10,14 @@ export class TuiProcessManager {
     private process?: cp.ChildProcess;
     private rpc?: JsonRpcClient;
     private _sessionId?: string;
+    private _started = false;
     private _onEvent = new vscode.EventEmitter<any>();
     readonly onEvent = this._onEvent.event;
 
     constructor(private context: vscode.ExtensionContext) {}
 
     get sessionId(): string | undefined { return this._sessionId; }
+    get connected(): boolean { return this._started && this.process?.exitCode === null; }
 
     async start(): Promise<void> {
         const binPath = this.findBinary();
@@ -46,6 +48,7 @@ export class TuiProcessManager {
 
         this.process.on('exit', (code) => {
             logger.info('TUI process exited:', code);
+            this._started = false;
             if (stderrLog.trim()) {
                 logger.info('TUI stderr log:', stderrLog);
             }
@@ -80,6 +83,7 @@ export class TuiProcessManager {
                 cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
             }) as AcpSessionNewResult;
             this._sessionId = sessionResult.sessionId;
+            this._started = true;
             logger.info('Session created:', this._sessionId);
         } catch (err: any) {
             throw new Error(`Failed to create session: ${err.message}`);
@@ -87,7 +91,9 @@ export class TuiProcessManager {
     }
 
     async sendPrompt(text: string): Promise<string> {
-        if (!this.rpc || !this._sessionId) throw new Error('TUI not connected');
+        if (!this._started || !this.rpc || !this._sessionId) {
+            throw new Error(this._started ? 'TUI process exited' : 'TUI not yet connected');
+        }
         const result = await this.rpc.call('session/prompt', {
             sessionId: this._sessionId,
             prompt: [{ type: 'text', text }],
@@ -103,6 +109,7 @@ export class TuiProcessManager {
     dispose(): void {
         this.rpc?.close();
         this.process?.kill();
+        this._started = false;
         this._sessionId = undefined;
     }
 

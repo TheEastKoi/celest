@@ -49,6 +49,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private async handleWebviewMessage(msg: any): Promise<void> {
         switch (msg.type) {
             case 'sendPrompt':
+                if (!this.tuiManager.connected) {
+                    this.postMessage({ type: 'promptError', error: 'TUI not connected yet. Please wait...' });
+                    return;
+                }
                 try {
                     this.postMessage({ type: 'promptStarted' });
                     await this.tuiManager.sendPrompt(msg.prompt);

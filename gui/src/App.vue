@@ -9,7 +9,10 @@
         </main>
 
         <footer class="input-area">
-            <InputBox @send="handleSend" :disabled="promptRunning" />
+            <div v-if="!tuiReady" class="connecting-banner">
+                Connecting to DeepSeek TUI...
+            </div>
+            <InputBox @send="handleSend" :disabled="promptRunning || !tuiReady" />
         </footer>
 
         <ContextBar />
@@ -27,6 +30,7 @@ const vscode = acquireVsCodeApi?.();
 
 const chatRef = ref<InstanceType<typeof ChatView>>();
 const promptRunning = ref(false);
+const tuiReady = ref(false);
 
 function handleSend(prompt: string) {
     chatRef.value?.addUserMessage(prompt);
@@ -39,6 +43,9 @@ onMounted(() => {
     window.addEventListener('message', (e) => {
         const msg = e.data;
         switch (msg.type) {
+            case 'tuiConnected':
+                tuiReady.value = true;
+                break;
             case 'tuiEvent':
                 if (msg.event === 'sessionUpdate' && msg.update?.content?.text) {
                     chatRef.value?.addAssistantPart({
@@ -91,5 +98,12 @@ onMounted(() => {
 .input-area {
     flex-shrink: 0;
     border-top: 1px solid var(--vscode-sideBarSectionHeader-border);
+}
+.connecting-banner {
+    padding: 8px 12px;
+    font-size: 12px;
+    text-align: center;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-textBlockQuote-background);
 }
 </style>
