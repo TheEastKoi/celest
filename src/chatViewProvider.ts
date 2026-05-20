@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { TuiProcessManager } from './tuiProcessManager';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
@@ -8,14 +10,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private context: vscode.ExtensionContext,
         private tuiManager: TuiProcessManager,
     ) {
-        // 监听 TUI 事件，转发到 WebView
         this.tuiManager.onEvent(event => {
             if (event.type === 'sessionUpdate') {
-                this.postMessage({
-                    type: 'tuiEvent',
-                    event: 'sessionUpdate',
-                    update: event.update,
-                });
+                this.postMessage({ type: 'tuiEvent', event: 'sessionUpdate', update: event.update });
             }
         });
     }
@@ -29,8 +26,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             localResourceRoots: [guiDir],
         };
 
-        webviewView.webview.html = this.getGuiHtml(webviewView.webview, guiDir);
-
+        webviewView.webview.html = this.buildHtml(webviewView.webview, guiDir);
         webviewView.webview.onDidReceiveMessage(msg => this.handleWebviewMessage(msg));
     }
 
@@ -38,21 +34,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this._view?.webview.postMessage(message);
     }
 
-    newSession(): void {
-        this.postMessage({ type: 'newSession' });
-    }
+    newSession(): void { this.postMessage({ type: 'newSession' }); }
 
     addSelectionToChat(): void {
         const editor = vscode.window.activeTextEditor;
         if (editor && !editor.selection.isEmpty) {
-            const text = editor.document.getText(editor.selection);
-            this.postMessage({ type: 'addContext', text });
+            this.postMessage({ type: 'addContext', text: editor.document.getText(editor.selection) });
         }
     }
 
-    clearChat(): void {
-        this.postMessage({ type: 'clearChat' });
-    }
+    clearChat(): void { this.postMessage({ type: 'clearChat' }); }
 
     private async handleWebviewMessage(msg: any): Promise<void> {
         switch (msg.type) {
@@ -60,7 +51,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 try {
                     this.postMessage({ type: 'promptStarted' });
                     await this.tuiManager.sendPrompt(msg.prompt);
-                    this.postMessage({ type: 'promptEnded', stopReason: 'end_turn' });
+                    this.postMessage({ type: 'promptEnded' });
                 } catch (err: any) {
                     this.postMessage({ type: 'promptError', error: err.message });
                 }
@@ -68,41 +59,43 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             case 'cancelPrompt':
                 await this.tuiManager.cancel();
                 break;
-            case 'approvalDecision':
-                break;
             case 'ready':
                 console.log('[Celest] GUI ready');
-                this.postMessage({
-                    type: 'tuiConnected',
-                    sessionId: this.tuiManager.sessionId || 'connecting',
-                });
+                this.postMessage({ type: 'tuiConnected', sessionId: this.tuiManager.sessionId || 'connecting' });
                 break;
         }
     }
 
-    private getGuiHtml(webview: vscode.Webview, guiDir: vscode.Uri): string {
-        const scriptUri = vscode.Uri.joinPath(guiDir, 'assets', 'index.js');
-        const cssUri = vscode.Uri.joinPath(guiDir, 'assets', 'index.css');
-        const scriptWebviewUri = webview.asWebviewUri(scriptUri);
-        const cssWebviewUri = webview.asWebviewUri(cssUri);
+    /** 读取 Vite 生成的 index.html，替换路径为 webview URI */
+    private buildHtml(webview: vscode.Webview, guiDir: vscode.Uri): string {
+        const indexPath = guiDir.fsPath + '\\index.html';
+        if (!fs.existsSync(indexPath)) {
+            return this.fallbackHtml();
+        }
+        let html = fs.readFileSync(indexPath, 'utf-8');
 
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy"
-          content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource};">
-    <link rel="stylesheet" href="${cssWebviewUri}">
-    <style>
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:var(--vscode-font-family,sans-serif);color:var(--vscode-foreground);background:var(--vscode-editor-background);overflow:hidden}
-        #app{height:100vh}
-    </style>
-</head>
-<body>
-    <div id="app"><div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--vscode-descriptionForeground)">Loading Celest...</div></div>
-    <script src="${scriptWebviewUri}"></script>
-</body>
-</html>`;
+        // 替换相对路径 ./assets/* 为 webview URI
+        const assetsDir = vscode.Uri.joinPath(guiDir, 'assets');
+        html = html.replace(
+            /(src|href)="\.\/assets\/([^"]+)"/g,
+            (_match, attr, filename) => {
+                const uri = webview.asWebviewUri(vscode.Uri.joinPath(assetsDir, filename));
+                return `${attr}="${uri}"`;
+            }
+        );
+
+        // 注入 CSP（放在现有 meta 之后）
+        const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource}; font-src ${webview.cspSource};">`;
+        html = html.replace('<head>', '<head>\n' + csp);
+
+        return html;
+    }
+
+    private fallbackHtml(): string {
+        return `<!DOCTYPE html><html><body>
+            <div style="display:flex;align-items:center;justify-content:center;height:100vh;color:var(--vscode-descriptionForeground)">
+                No GUI build found. Run build.mjs first.
+            </div>
+        </body></html>`;
     }
 }
