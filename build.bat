@@ -10,13 +10,14 @@ echo.
 cd /d "%~dp0"
 
 echo [1/3] Installing dependencies...
-call D:\nodejs\npm.cmd install --silent 2>&1 | findstr /v "warn deprecated"
+call D:\nodejs\npm.cmd install
 if %ERRORLEVEL% NEQ 0 (
     echo  ERROR: npm install failed
     pause
     exit /b 1
 )
 
+echo.
 echo [2/3] Building...
 D:\nodejs\node.exe build.mjs
 if %ERRORLEVEL% NEQ 0 (
