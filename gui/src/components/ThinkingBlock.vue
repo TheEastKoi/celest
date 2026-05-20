@@ -1,7 +1,9 @@
 <template>
     <div class="thinking-block">
         <div class="thinking-summary" @click="expanded = !expanded">
-            <span class="thinking-label">🧠 Thinking</span>
+            <span class="thinking-label">thinking</span>
+            <span v-if="done" class="thinking-done">done</span>
+            <span v-else class="thinking-live">live</span>
             <span v-if="!expanded" class="thinking-preview">{{ preview }}</span>
             <span v-else class="thinking-hint">click to collapse</span>
         </div>
@@ -15,9 +17,9 @@
 import { ref, computed } from 'vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
 
-const props = defineProps<{ content: string }>();
+const props = defineProps<{ content: string; done?: boolean }>();
 const expanded = ref(false);
-const preview = computed(() => props.content.slice(0, 80).replace(/\n/g, ' ') + '...');
+const preview = computed(() => (props.content || '').slice(0, 80).replace(/\n/g, ' ') + '...');
 </script>
 
 <style scoped>
@@ -38,6 +40,17 @@ const preview = computed(() => props.content.slice(0, 80).replace(/\n/g, ' ') + 
     user-select: none;
 }
 .thinking-label { font-weight: 600; white-space: nowrap; }
+.thinking-done {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    opacity: 0.5;
+    white-space: nowrap;
+}
+.thinking-live {
+    font-size: 10px;
+    color: #60a5fa;
+    white-space: nowrap;
+}
 .thinking-preview {
     color: var(--vscode-descriptionForeground);
     overflow: hidden;

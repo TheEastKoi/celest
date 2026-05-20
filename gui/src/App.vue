@@ -133,14 +133,11 @@ onMounted(() => {
                 sessionId.value = msg.sessionId || 'connected';
                 break;
 
-            // ── 文本增量 (打字机) ──
+            // ── 文本增量 (SSE 原生流式 — 实时追加，无需打字机模拟) ──
             case 'tuiText':
                 chatRef.value?.hideTyping();
-                // 首次文本到达 → 启动打字机效果
-                if (!typewriterTimer) {
-                    stopTypewriter();
-                    startTypewriter(msg.text);
-                }
+                stopTypewriter(); // SSE 流式取代打字机
+                chatRef.value?.appendText(msg.text);
                 break;
 
             // ── 一次性完整文本（fallback 流式） ──
@@ -154,6 +151,11 @@ onMounted(() => {
             case 'tuiReasoning':
                 chatRef.value?.hideTyping();
                 chatRef.value?.appendReasoning(msg.reasoning);
+                break;
+
+            // ── Reasoning 完成 ──
+            case 'tuiReasoningDone':
+                chatRef.value?.markReasoningDone();
                 break;
 
             // ── 工具调用 ──
@@ -171,6 +173,15 @@ onMounted(() => {
                     msg.toolResult?.callId || '',
                     msg.toolResult?.output ?? msg.toolResult?.error,
                     msg.toolResult?.status === 'error' ? 'error' : 'success',
+                );
+                break;
+
+            // ── 工具执行进度（Shell 实时输出流） ──
+            case 'tuiToolProgress':
+                chatRef.value?.updateToolResult(
+                    msg.toolResult?.callId || '',
+                    msg.toolResult?.output ?? '',
+                    'running',
                 );
                 break;
 

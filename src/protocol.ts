@@ -1,31 +1,82 @@
 /**
  * Celest 协议类型定义
- * 对应 deepseek-tui 的 crates/protocol + ACP 协议
+ * Phase 3: HTTP/SSE 运行时 API（deepseek serve --http）
  */
 
-// ── JSON-RPC 2.0 ──────────────────────────────────────────────
+// ── SSE 事件类型（POST /v1/stream 兼容端点） ───────────────────
 
-export interface JsonRpcRequest {
-    jsonrpc: '2.0';
-    id?: string | number;
-    method: string;
-    params?: unknown;
+/** SSE 事件名 */
+export type SseEventName =
+    | 'turn.started'
+    | 'message.delta'
+    | 'tool.started'
+    | 'tool.progress'
+    | 'tool.completed'
+    | 'turn.completed'
+    | 'done'
+    | 'error'
+    | 'status'
+    | 'approval.required';
+
+/** SSE 事件帧 */
+export interface SseEventFrame {
+    event: SseEventName;
+    data: string;
 }
 
-export interface JsonRpcResponse {
-    jsonrpc: '2.0';
-    id: string | number;
-    result?: unknown;
-    error?: { code: number; message: string; data?: unknown };
+/** turn.started 负载 */
+export interface SseTurnStarted {
+    thread_id: string;
+    turn_id: string;
+    model: string;
+    mode: string;
+    workspace: string;
 }
 
-export interface JsonRpcNotification {
-    jsonrpc: '2.0';
-    method: string;
-    params?: unknown;
+/** message.delta 负载 */
+export interface SseMessageDelta {
+    content: string;
 }
 
-// ── ACP 协议 (ACP 1.0) ────────────────────────────────────────
+/** tool.started 负载 */
+export interface SseToolStarted {
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+}
+
+/** tool.progress 负载 */
+export interface SseToolProgress {
+    output?: string;
+    id?: string;
+}
+
+/** tool.completed 负载 */
+export interface SseToolCompleted {
+    id: string;
+    success: boolean;
+    output: unknown;
+}
+
+/** turn.completed 负载 */
+export interface SseTurnCompleted {
+    usage: unknown;
+}
+
+// ── HTTP 请求类型 ──────────────────────────────────────────────
+
+/** POST /v1/stream 请求体 */
+export interface StreamTurnRequest {
+    prompt: string;
+    model?: string;
+    mode?: string;
+    workspace?: string;
+    allow_shell?: boolean;
+    trust_mode?: boolean;
+    auto_approve?: boolean;
+}
+
+// ── 旧版 ACP 协议（保留兼容） ─────────────────────────────────
 
 export interface AcpInitializeResult {
     protocolVersion: number;
@@ -42,13 +93,14 @@ export interface AcpSessionNewResult {
 
 export interface AcpSessionUpdateParams {
     sessionId: string;
-    update: AcpContentUpdate;
+    update: { sessionUpdate?: string; content: Record<string, unknown> };
 }
 
-// ── Content Union Types (Phase 2 — 适配实际 TUI 输出) ──────────
+export interface AcpPromptStopResult {
+    stopReason: 'end_turn' | 'cancelled' | 'max_tokens';
+}
 
-/** content.type 判别字段 */
-export type AcpContentType = 'text' | 'reasoning' | 'tool_use' | 'tool_result';
+// ── Content Union Types（WebView 消息兼容） ────────────────────
 
 export interface AcpTextContent {
     type: 'text';
@@ -75,7 +127,7 @@ export interface AcpToolResultContent {
         callId?: string;
         output?: unknown;
         error?: string;
-        status?: 'success' | 'error' | 'pending';
+        status?: 'success' | 'error' | 'pending' | 'running';
     };
 }
 
@@ -85,17 +137,7 @@ export type AcpContentUnion =
     | AcpToolCallContent
     | AcpToolResultContent;
 
-export interface AcpContentUpdate {
-    /** TUI 内部事件名：agent_message_chunk / agent_thought_chunk / tool_use / tool_result */
-    sessionUpdate?: string;
-    content: AcpContentUnion;
-}
-
-export interface AcpPromptStopResult {
-    stopReason: 'end_turn' | 'cancelled' | 'max_tokens';
-}
-
-// ── App-Server 协议 (完整版, Phase 3+) ─────────────────────────
+// ── App-Server 协议（保留） ─────────────────────────────────────
 
 export interface EventFrame {
     event: string;

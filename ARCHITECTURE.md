@@ -74,8 +74,9 @@ Extension Host ←→ WebView:
   消息类型: sendPrompt / addContext / approvalDecision / showHistory / focusInput
 
 Extension Host ←→ deepseek-tui:
-  JSON-RPC 2.0 over stdin/stdout
-  请求: {"jsonrpc":"2.0","id":1,"method":"thread/list","params":{}}
+  HTTP/SSE (deepseek serve --http, port auto)
+  POST /v1/stream → SSE 事件流 (turn.started, message.delta, tool.*, turn.completed, done)
+  真正流式: 不需要修改 deepseek-tui 源码
   响应: {"jsonrpc":"2.0","id":1,"result":{...}}
   通知: {"jsonrpc":"2.0","method":"event","params":{...}}
 ```

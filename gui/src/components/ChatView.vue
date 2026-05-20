@@ -19,6 +19,7 @@
                     <ThinkingBlock
                         v-if="part.type === 'thinking'"
                         :content="part.content || ''"
+                        :done="part.done"
                     />
                     <MarkdownRenderer
                         v-else-if="part.type === 'text'"
@@ -74,6 +75,7 @@ export interface Message {
 export interface ChatPart {
     type: 'text' | 'thinking' | 'tool_call';
     content?: string;
+    done?: boolean;
     toolName?: string;
     arguments?: Record<string, unknown>;
     result?: unknown;
@@ -130,10 +132,24 @@ function appendReasoning(text: string) {
     const lastPart = parts[parts.length - 1];
     if (lastPart && lastPart.type === 'thinking') {
         lastPart.content = (lastPart.content || '') + text;
+        lastPart.done = false; // still streaming
     } else {
-        parts.push({ type: 'thinking', content: text });
+        parts.push({ type: 'thinking', content: text, done: false });
     }
     scrollToBottom();
+}
+
+/** 标记最后一个 thinking 块为已完成 */
+function markReasoningDone() {
+    const msg = currentAssistant();
+    if (!msg?.parts) return;
+    for (let i = msg.parts.length - 1; i >= 0; i--) {
+        if (msg.parts[i].type === 'thinking') {
+            msg.parts[i].done = true;
+            scrollToBottom();
+            return;
+        }
+    }
 }
 
 /** 新增工具调用卡片 */
@@ -249,6 +265,7 @@ defineExpose({
     addUserMessage,
     appendText,
     appendReasoning,
+    markReasoningDone,
     addToolCall,
     updateToolResult,
     clearMessages,

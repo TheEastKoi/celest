@@ -67,7 +67,8 @@
 **目标:** 流式渲染优化 + 错误恢复 + 消息持久化
 
 - [x] 流式打字机效果优化（appendText 原地追加，无闪烁）
-- [ ] Thinking block 实时流（appendReasoning，reasoning channel）→ 🔴 BLOCKED: TUI ACP 不发送 reasoning 类型内容
+- [x] Thinking block 实时流（appendReasoning，reasoning channel）
+- [x] ✅ 协议升级 ACP → HTTP/SSE（原生流式，零源码修改 deepseek-tui）
 - [x] 工具调用卡片：显示工具名 + 参数 + 结果预览
 - [x] 错误自动重试机制（TUI 进程崩溃→指数退避自动重启，最多 3 次）
 - [x] 消息本地缓存（localStorage 持久化，500ms 防抖写入）
