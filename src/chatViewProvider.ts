@@ -74,7 +74,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 console.log('[Celest] GUI ready');
                 this.postMessage({
                     type: 'tuiConnected',
-                    sessionId: this.tuiManager.sessionId,
+                    sessionId: this.tuiManager.sessionId || 'connecting',
                 });
                 break;
         }

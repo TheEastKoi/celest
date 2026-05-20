@@ -29,8 +29,11 @@ export interface JsonRpcNotification {
 
 export interface AcpInitializeResult {
     protocolVersion: number;
-    capabilities: { loadSession: boolean };
-    agent: { name: string; version: string };
+    capabilities?: { loadSession: boolean };
+    agentCapabilities?: unknown;
+    agentInfo?: { name: string; title?: string; version: string };
+    agent?: { name: string; version: string };
+    authMethods?: unknown[];
 }
 
 export interface AcpSessionNewResult {

@@ -11,7 +11,7 @@ import { JsonRpcRequest, JsonRpcResponse, JsonRpcNotification } from './protocol
  */
 export class JsonRpcClient {
     private nextId = 1;
-    private pending = new Map<number | string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+    private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
     private notificationHandlers: Array<(method: string, params: unknown) => void> = [];
     private rl: readline.ReadLine;
     private closed = false;
@@ -24,7 +24,7 @@ export class JsonRpcClient {
     /** 发送请求，返回 Promise<result> */
     call(method: string, params?: unknown): Promise<unknown> {
         if (this.closed) throw new Error('RPC client closed');
-        const id = this.nextId++;
+        const id = String(this.nextId++);
         return new Promise((resolve, reject) => {
             this.pending.set(id, { resolve, reject });
             const req: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
@@ -65,10 +65,11 @@ export class JsonRpcClient {
                 } catch {}
             }
         } else if ('id' in msg) {
-            // 响应
-            const pending = this.pending.get(msg.id);
+            // 响应（ACP 把数字 id 转成字符串，统一用字符串比较）
+            const msgId = String(msg.id);
+            const pending = this.pending.get(msgId);
             if (pending) {
-                this.pending.delete(msg.id);
+                this.pending.delete(msgId);
                 if (msg.error) {
                     pending.reject(new Error(`RPC error ${msg.error.code}: ${msg.error.message}`));
                 } else {
@@ -78,7 +79,7 @@ export class JsonRpcClient {
         }
     }
 
-    private setupTimeout(id: number | string, ms: number, reject: (e: Error) => void): void {
+    private setupTimeout(id: string, ms: number, reject: (e: Error) => void): void {
         setTimeout(() => {
             if (this.pending.has(id)) {
                 this.pending.delete(id);
