@@ -81,3 +81,18 @@ const result: any = { role: 'user', content: text };
 - `docs: description` — 文档
 - `chore: description` — 构建/依赖/杂项
 - Scope 可选：`gui`, `ext`, `tui`, `test`, `ci`
+
+## 六、文档规范
+
+开发过程中必须维护：
+
+| 文件 | 说明 |
+|------|------|
+| `docs/PLAN.md` | 详细开发计划（防 AI 遗忘进度） |
+| `docs/BUGLOG.md` | 问题解决记录（现象→根因→修复） |
+| `docs/CHANGELOG.md` | 开发日志（每次会话产出） |
+
+每次修改完成后，如果涉及以下情况，需更新对应文档：
+- 新功能 → 更新 `PLAN.md` 勾选完成项
+- 修复 bug → 追加 `BUGLOG.md`
+- 任何代码变更 → 追加 `CHANGELOG.md`
