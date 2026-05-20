@@ -40,10 +40,10 @@ function handleInput() {
     const atMatch = before.match(/@(\w*)$/);
     const slashMatch = before.match(/\/(\w*)$/);
     if (atMatch) {
-        console.log('[Celest] @ mention:', atMatch[1]);
+        console.log('[Celest] @ mention:', atMatch[1]); // eslint-disable-line
     }
     if (slashMatch) {
-        console.log('[Celest] / command:', slashMatch[1]);
+        console.log('[Celest] / command:', slashMatch[1]); // eslint-disable-line
     }
 }
 </script>

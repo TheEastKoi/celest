@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { TuiProcessManager } from './tuiProcessManager';
+import { logger } from './logger';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -60,7 +61,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 await this.tuiManager.cancel();
                 break;
             case 'ready':
-                console.log('[Celest] GUI ready');
+                logger.info('GUI ready');
                 this.postMessage({ type: 'tuiConnected', sessionId: this.tuiManager.sessionId || 'connecting' });
                 break;
         }

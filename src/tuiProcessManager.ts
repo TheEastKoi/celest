@@ -4,6 +4,7 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import { JsonRpcClient } from './jsonRpcClient';
 import type { AcpInitializeResult, AcpSessionNewResult, AcpSessionUpdateParams } from './protocol';
+import { logger } from './logger';
 
 export class TuiProcessManager {
     private process?: cp.ChildProcess;
@@ -21,8 +22,8 @@ export class TuiProcessManager {
         if (!fs.existsSync(binPath)) {
             throw new Error(`deepseek-tui binary not found: ${binPath}`);
         }
-        console.log('[Celest] Starting deepseek-tui:', binPath);
-        console.log('[Celest] cwd:', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
+        logger.info('Starting deepseek-tui:', binPath);
+        logger.info('cwd:', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
 
         this.process = cp.spawn(binPath, ['serve', '--acp'], {
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -35,18 +36,18 @@ export class TuiProcessManager {
             const text = d.toString();
             stderrLog += text;
             if (text.trim()) {
-                console.log('[Celest] TUI stderr:', text.trim());
+                logger.info('TUI stderr:', text.trim());
             }
         });
 
         this.process.on('error', (err) => {
-            console.error('[Celest] TUI spawn error:', err.message);
+            logger.error('TUI spawn error:', err.message);
         });
 
         this.process.on('exit', (code) => {
-            console.log('[Celest] TUI process exited:', code);
+            logger.info('TUI process exited:', code);
             if (stderrLog.trim()) {
-                console.log('[Celest] TUI stderr log:', stderrLog);
+                logger.info('TUI stderr log:', stderrLog);
             }
             this._sessionId = undefined;
         });
@@ -67,7 +68,7 @@ export class TuiProcessManager {
                 this.rpc.call('initialize', { protocolVersion: 1 }),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('ACP handshake timeout')), 10000)),
             ]) as AcpInitializeResult;
-            console.log('[Celest] ACP initialized:', initResult.agentInfo?.name, initResult.agentInfo?.version);
+            logger.info('ACP initialized:', initResult.agentInfo?.name, initResult.agentInfo?.version);
         } catch (err: any) {
             const msg = stderrLog || err.message;
             throw new Error(`Failed to connect to deepseek-tui: ${msg}`);
@@ -79,7 +80,7 @@ export class TuiProcessManager {
                 cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
             }) as AcpSessionNewResult;
             this._sessionId = sessionResult.sessionId;
-            console.log('[Celest] Session created:', this._sessionId);
+            logger.info('Session created:', this._sessionId);
         } catch (err: any) {
             throw new Error(`Failed to create session: ${err.message}`);
         }
