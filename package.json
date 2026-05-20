@@ -196,6 +196,16 @@
           "command": "celest.openSettings",
           "group": "navigation@3",
           "when": "view == celest.chatPanel"
+        },
+        {
+          "command": "celest.clearChat",
+          "group": "navigation@4",
+          "when": "view == celest.chatPanel"
+        },
+        {
+          "command": "celest.openInNewWindow",
+          "group": "navigation@5",
+          "when": "view == celest.chatPanel"
         }
       ]
     }

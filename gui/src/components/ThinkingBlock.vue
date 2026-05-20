@@ -1,13 +1,14 @@
 <template>
-    <details class="thinking-block" :open="expanded">
-        <summary class="thinking-summary" @click.prevent="expanded = !expanded">
+    <div class="thinking-block">
+        <div class="thinking-summary" @click="expanded = !expanded">
             <span class="thinking-label">🧠 Thinking</span>
-            <span class="thinking-preview">{{ preview }}</span>
-        </summary>
-        <div class="thinking-content">
+            <span v-if="!expanded" class="thinking-preview">{{ preview }}</span>
+            <span v-else class="thinking-hint">click to collapse</span>
+        </div>
+        <div v-show="expanded" class="thinking-content">
             <MarkdownRenderer :content="content" />
         </div>
-    </details>
+    </div>
 </template>
 
 <script setup lang="ts">
@@ -42,6 +43,13 @@ const preview = computed(() => props.content.slice(0, 80).replace(/\n/g, ' ') + 
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
+}
+.thinking-hint {
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    opacity: 0.6;
+    margin-left: auto;
 }
 .thinking-content {
     padding: 10px;

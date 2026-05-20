@@ -64,6 +64,21 @@
 
 ---
 
+## TUI ACP 不发送 reasoning/thinking 内容
+
+**时间:** 2026-05-20  
+**现象:** 无论发送多复杂的 prompt，前端从不出现 🧠 Thinking 折叠块。  
+**根因:** `deepseek-tui` 的 ACP 协议实现中，`session/update` 通知的 `content.type` 恒为 `"text"`。thinking/reasoning 内容在 TUI 内部被剥离，不通过 ACP 传给客户端。日志确认：
+```
+notification: agent_message_chunk, content={"type":"text","text":"..."}
+```
+从未出现 `type="reasoning"` 或 `type="thinking"`。  
+**影响:** Thinking block 功能无法在当前 TUI 版本上实现。  
+**修复方向:** 需要修改 `deepseek-tui` Rust 源码（`crates/acp` 或 `crates/app-server`），在生成 thinking token 时发送 `content.type="reasoning"` 的 `session/update` 通知。  
+**状态:** 🔴 Blocked（需 TUI 端配合）
+
+---
+
 ## 待解决的问题
 
-_无。_
+- Thinking block 功能 blocked（见上）

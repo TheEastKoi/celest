@@ -11,8 +11,14 @@ export class TuiProcessManager {
     private rpc?: JsonRpcClient;
     private _sessionId?: string;
     private _started = false;
+    private _retryCount = 0;
+    private _maxRetries = 3;
+    private _retryDelay = 2000; // 毫秒
+    private _disposed = false;
     private _onEvent = new vscode.EventEmitter<any>();
     readonly onEvent = this._onEvent.event;
+    private _onStatusChange = new vscode.EventEmitter<{ status: string }>();
+    readonly onStatusChange = this._onStatusChange.event;
 
     constructor(private context: vscode.ExtensionContext) {}
 
@@ -20,6 +26,46 @@ export class TuiProcessManager {
     get connected(): boolean { return this._started && this.process?.exitCode === null; }
 
     async start(): Promise<void> {
+        this._disposed = false;
+        this._retryCount = 0;
+        await this.startInternal();
+    }
+
+    async sendPrompt(text: string): Promise<{ stopReason: string; raw: Record<string, unknown> }> {
+        if (!this._started || !this.rpc || !this._sessionId) {
+            throw new Error(this._started ? 'TUI process exited' : 'TUI not yet connected');
+        }
+        const result = await this.rpc.call('session/prompt', {
+            sessionId: this._sessionId,
+            prompt: [{ type: 'text', text }],
+        }) as Record<string, unknown>;
+        // 🔍 完整响应日志（排查文本位置）
+        logger.info('[DEBUG] sendPrompt raw response:', JSON.stringify(result).slice(0, 800));
+        return {
+            stopReason: (result.stopReason as string) || 'unknown',
+            raw: result,
+        };
+    }
+
+    async cancel(): Promise<void> {
+        if (!this.rpc || !this._sessionId) return;
+        // 10 秒短超时：cancel 不需要等太久，TUI 不响应也强制返回
+        await Promise.race([
+            this.rpc.call('session/cancel', { sessionId: this._sessionId }),
+            new Promise<void>(resolve => setTimeout(() => resolve(), 10_000)),
+        ]);
+    }
+
+    dispose(): void {
+        this._disposed = true;
+        this.rpc?.close();
+        this.process?.kill();
+        this._started = false;
+        this._sessionId = undefined;
+    }
+
+    /** 内部启动逻辑（含重试） */
+    private async startInternal(): Promise<void> {
         const binPath = this.findBinary();
         if (!fs.existsSync(binPath)) {
             throw new Error(`deepseek-tui binary not found: ${binPath}`);
@@ -32,7 +78,6 @@ export class TuiProcessManager {
             cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd(),
         });
 
-        // 收集 stderr 用于调试
         let stderrLog = '';
         this.process.stderr?.on('data', (d: Buffer) => {
             const text = d.toString();
@@ -46,26 +91,37 @@ export class TuiProcessManager {
             logger.error('TUI spawn error:', err.message);
         });
 
-        this.process.on('exit', (code) => {
-            logger.info('TUI process exited:', code);
+        this.process.on('exit', (code, signal) => {
+            logger.info('TUI process exited:', code, signal);
+            const wasConnected = this._started;
             this._started = false;
             if (stderrLog.trim()) {
                 logger.info('TUI stderr log:', stderrLog);
             }
             this._sessionId = undefined;
+
+            // 非主动关闭 → 尝试自动重启
+            if (!this._disposed && wasConnected && code !== 0) {
+                this.attemptRestart(code, signal);
+            }
         });
 
         this.rpc = new JsonRpcClient(this.process.stdin!, this.process.stdout!);
 
         // 注册通知
         this.rpc.onNotification((method, params) => {
+            // 🔍 记录所有通知
+            const paramsPreview = JSON.stringify(params).slice(0, 300);
+            logger.info(`[DEBUG] notification: method=${method}, params=${paramsPreview}`);
             if (method === 'session/update') {
                 const update = params as AcpSessionUpdateParams;
+                const keys = Object.keys(update.content || {});
+                logger.info(`[DEBUG] session/update content keys=[${keys.join(',')}]`);
                 this._onEvent.fire({ type: 'sessionUpdate', ...update });
             }
         });
 
-        // 握手超时 10 秒
+        // 握手
         try {
             const initResult = await Promise.race([
                 this.rpc.call('initialize', { protocolVersion: 1 }),
@@ -90,39 +146,42 @@ export class TuiProcessManager {
         }
     }
 
-    async sendPrompt(text: string): Promise<string> {
-        if (!this._started || !this.rpc || !this._sessionId) {
-            throw new Error(this._started ? 'TUI process exited' : 'TUI not yet connected');
+    /** 自动重启逻辑（指数退避） */
+    private async attemptRestart(exitCode: number | null, signal: NodeJS.Signals | null): Promise<void> {
+        if (this._retryCount >= this._maxRetries) {
+            logger.error('TUI max retries reached, giving up');
+            this._onEvent.fire({ type: 'tuiCrashed', message: 'TUI process crashed and max retries reached' });
+            return;
         }
-        const result = await this.rpc.call('session/prompt', {
-            sessionId: this._sessionId,
-            prompt: [{ type: 'text', text }],
-        }) as { stopReason: string };
-        return result.stopReason;
-    }
 
-    async cancel(): Promise<void> {
-        if (!this.rpc || !this._sessionId) return;
-        await this.rpc.call('session/cancel', { sessionId: this._sessionId });
-    }
+        this._retryCount++;
+        const delay = this._retryDelay * Math.pow(2, this._retryCount - 1);
+        logger.info(`TUI restart attempt ${this._retryCount}/${this._maxRetries} in ${delay}ms...`);
+        this._onStatusChange.fire({ status: 'restarting' });
 
-    dispose(): void {
-        this.rpc?.close();
-        this.process?.kill();
-        this._started = false;
-        this._sessionId = undefined;
+        await new Promise(resolve => setTimeout(resolve, delay));
+
+        try {
+            await this.startInternal();
+            // 重连成功 → 重置计数 + 通知
+            this._retryCount = 0;
+            logger.info('TUI restarted successfully');
+            this._onEvent.fire({ type: 'tuiReconnected', sessionId: this._sessionId });
+            this._onStatusChange.fire({ status: 'connected' });
+        } catch (err: any) {
+            logger.error('TUI restart failed:', err.message);
+            // 继续重试（如果还有次数）
+            this.attemptRestart(exitCode, signal);
+        }
     }
 
     /** 查找 deepseek-tui 二进制（多路径回退） */
     private findBinary(): string {
-        // 1. 用户配置的路径
         const configPath = vscode.workspace.getConfiguration('celest').get<string>('binaryPath');
         if (configPath && fs.existsSync(configPath)) return configPath;
 
-        // 2. PATH 环境变量
         if (process.platform !== 'win32') return 'deepseek-tui';
 
-        // 3. 已知的编译输出路径
         const candidates = [
             path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'release', 'deepseek-tui.exe'),
             path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'debug', 'deepseek-tui.exe'),

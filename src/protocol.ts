@@ -45,8 +45,50 @@ export interface AcpSessionUpdateParams {
     update: AcpContentUpdate;
 }
 
+// ── Content Union Types (Phase 2 — 适配实际 TUI 输出) ──────────
+
+/** content.type 判别字段 */
+export type AcpContentType = 'text' | 'reasoning' | 'tool_use' | 'tool_result';
+
+export interface AcpTextContent {
+    type: 'text';
+    text: string;
+}
+
+export interface AcpReasoningContent {
+    type: 'reasoning';
+    reasoning: string;
+}
+
+export interface AcpToolCallContent {
+    type: 'tool_use';
+    toolCall?: {
+        name: string;
+        arguments?: Record<string, unknown>;
+        callId?: string;
+    };
+}
+
+export interface AcpToolResultContent {
+    type: 'tool_result';
+    toolResult?: {
+        callId?: string;
+        output?: unknown;
+        error?: string;
+        status?: 'success' | 'error' | 'pending';
+    };
+}
+
+export type AcpContentUnion =
+    | AcpTextContent
+    | AcpReasoningContent
+    | AcpToolCallContent
+    | AcpToolResultContent;
+
 export interface AcpContentUpdate {
-    content: { text: string } | { toolCall: unknown } | { toolResult: unknown };
+    /** TUI 内部事件名：agent_message_chunk / agent_thought_chunk / tool_use / tool_result */
+    sessionUpdate?: string;
+    content: AcpContentUnion;
 }
 
 export interface AcpPromptStopResult {

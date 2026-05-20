@@ -9,11 +9,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
-
-const modelName = ref('deepseek-v4-flash');
-const turnCount = ref(0);
-const sessionId = ref<string>();
+defineProps<{
+    modelName: string;
+    turnCount: number;
+    sessionId?: string;
+}>();
 </script>
 
 <style scoped>

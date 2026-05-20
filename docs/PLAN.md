@@ -62,18 +62,24 @@
 - [x] `docs/CHANGELOG.md` — 开发日志
 - [x] `docs/PLAN.md` — 本文件
 
-## Phase 2: 聊天核心强化 ⏳ (未开始)
+## Phase 2: 聊天核心强化 ✅ (2026-05-20)
 
 **目标:** 流式渲染优化 + 错误恢复 + 消息持久化
 
-- [ ] 流式打字机效果优化（逐字追加无闪烁）
-- [ ] Thinking block 实时流（reasoning channel）
-- [ ] 工具调用卡片：显示工具名 + 参数 + 结果预览
-- [ ] 错误自动重试机制（TUI 进程崩溃→自动重启）
-- [ ] 消息本地缓存（IndexedDB / localStorage）
-- [ ] 停止生成按钮（发送 cancel）
-
-**依赖:** 可能需要修改 app-server 添加 `prompt/stream` (流式 EventFrame)
+- [x] 流式打字机效果优化（appendText 原地追加，无闪烁）
+- [ ] Thinking block 实时流（appendReasoning，reasoning channel）→ 🔴 BLOCKED: TUI ACP 不发送 reasoning 类型内容
+- [x] 工具调用卡片：显示工具名 + 参数 + 结果预览
+- [x] 错误自动重试机制（TUI 进程崩溃→指数退避自动重启，最多 3 次）
+- [x] 消息本地缓存（localStorage 持久化，500ms 防抖写入）
+- [x] 停止生成按钮（⏹ Stop 按钮，发送 session/cancel）
+- [x] protocol.ts 类型完善（AcpTextContent / AcpToolCallContent / AcpToolResultContent / AcpReasoningContent）
+- [x] 后端消息路由适配（chatViewProvider 按 content 类型分发 tuiText / tuiReasoning / tuiToolCall / tuiToolResult）
+- [x] InputBox disabled 状态支持
+- [x] `test/phase2_verify.py` — 自动化验证脚本（13 项检查）
+- [x] `docs/TEST_PLAN.md` — 全面测试方案文档
+- [x] `docs/INTEGRATION_TEST.md` — 集成测试用例清单（50+ 项）
+- [x] UI 优化：多行自动扩展输入框 + Stop 浮动右上角 + 模拟打字机 fallback
+- [x] 调试日志：`[DEBUG]` 标记记录 session/update 实际内容结构
 
 ## Phase 3: @ / / + 面板 ⏳ (未开始)
 
@@ -114,5 +120,5 @@
 
 ---
 
-**当前进度:** Phase 1 完成，待进入 Phase 2  
-**最后更新:** 2026-05-20 (commit `e19462f`)
+**当前进度:** Phase 2 完成，待进入 Phase 3  
+**最后更新:** 2026-05-20 (commit `Phase2`)
