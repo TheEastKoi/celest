@@ -1,98 +1,139 @@
 # Celest — 开发日志
 
-> 记录每次开发的产出，按日期倒序。
+> 按 git 提交时间线记录。括号内为对应 commit hash。
+
+---
+
+## 2026-05-23
+
+### Phase 3.1 — 7 项问题修复 + Slash/Help 终端对齐 (未提交)
+
+**7 项修复:**
+
+| # | 问题 | 修改文件 | 说明 |
+|---|------|---------|------|
+| 1 | / 命令光标停在倒数第二字 | InputBox.vue | `handleSlashSelect` 修复 before/after 分割逻辑 |
+| 2 | / 命令弹窗滚动不跟随 | SlashCommandPopup.vue | 添加 `watch(selectedIdx)` + `scrollIntoView({ block: 'nearest' })` |
+| 3 | 截图粘贴无法作为路径 | InputBox.vue + chatViewProvider.ts + App.vue | paste 检测图片 blob → `pasteImage` → temp 保存 → `@path` 插入 |
+| 4 | VS Code 右键不加 @ | extension.ts + chatViewProvider.ts + InputBox.vue + App.vue | `addToChat(uri)` → `addAtMention` → `insertAtCursor('@path ')` |
+| 5 | 工具调用卡片默认展开 | ChatView.vue | header 点击切换折叠，折叠时预览结果，`▶/▼` 图标 |
+| 6 | 面板 Tab 切换歧义 | App.vue | Tab 布局 → 左右分栏（可拖拽分隔条 + ResizeObserver） |
+| 7 | /help 内容与 TUI 不齐 | SlashCommandPopup.vue + helpData.ts + HelpPanel.vue | 60→63 命令 7 分类 A-Z 排序 + 全中文描述 + rowspan 渲染 |
+
+**布局重构:**
+- App.vue 从 Tab 切换（Chat/Work/Plan）改为左右分栏
+- 左侧 Chat 占 65%，右侧 260px 面板区域
+- 拖拽分隔条调整比例，ResizeObserver 监听 VS Code 侧边栏变化
+- 右侧面板：Work / Plan / Tasks / Help 纵向堆叠，可折叠
+
+**Help 面板重构:**
+- `helpData.ts` — 15 个分类（7 快捷键 + 8 命令组），每个带 `color` 色标
+- `HelpPanel.vue` — 独立 Vue 组件，rowspan 渲染别名行，`tbody` 组间分割线，三列固定宽度
+
+**/ 命令面板重构:**
+- SlashCommandPopup — 63 个命令，全局 A-Z 排序，每条带 `zhName` 中文名
+- 过滤支持中文搜索（zhName + name + description）
+- 标题栏显示 `Commands (N of 63)` 计数
+
+**Cancel 机制修复:**
+- tuiProcessManager 新增 `_currentThreadId` / `_currentTurnId`
+- `cancel()` 先发 `POST .../interrupt`，失败时 fallback `AbortController.abort()`
+
+**ThreadRecord 修复:**
+- 返回类型 `ThreadSummary` 匹配 `title` + ISO 8601
+- sessionsTreeProvider 用 `title` 显示，fallback `Thread {id[0..8]}`
+- `formatDate()` 解析 ISO 8601 → 本地化短日期
+
+**🔧 构建修复:**
+- `build.bat` — PATH 改为动态检测 `%AppData%\npm` + `C:\Program Files\nodejs`
+- CI 简化 — 去掉 build job，保留 test job（`npx vitest run`）
+- 单元测试修复 — tuiProcessManager + sessionsTreeProvider 适配新接口
+
+**文档更新:**
+- `PLAN.md` — Phase 3 详细完成清单 + API 兼容性分析 + BUGLOG 索引
+- `BUGLOG.md` — Phase 3 新增 3 条问题记录
+- `CHANGELOG.md` — 本文件
+- `TEST_PLAN.md` — Phase 3 测试策略 + 静态检查项
+- `INTEGRATION_TEST.md` — Phase 3 10 章集成测试用例
+
+---
+
+## 2026-05-21
+
+### feat: upgrade protocol ACP→HTTP/SSE (`4cbc31f`)
+
+**改动文件:**
+- `src/tuiProcessManager.ts` — 重写为 HTTP/SSE Threads 版本
+- `src/protocol.ts` — SSE 事件类型 + Content Union Types
+- `src/chatViewProvider.ts` — 按 content 类型分发 tuiText/tuiReasoning/tuiToolCall/tuiToolResult
+- `gui/src/App.vue` — SSE 流式消息处理 + 打字机 fallback + Stop
+- `gui/src/components/ChatView.vue` — appendText 原地追加 + addToolCall/updateToolResult
+- `gui/src/components/ThinkingBlock.vue` — done prop + 实时流状态
+- `gui/src/global.css` / `gui/src/main.ts` / `gui/index.html`
+- `tmp/test-` — 5 个 HTTP/SSE 调试脚本
+- `ARCHITECTURE.md` / `docs/PLAN.md` / `docs/BUGLOG.md`
 
 ---
 
 ## 2026-05-20
 
-### 会话 #6 — Phase 2: 聊天核心强化
+### celest-update — Phase 2 主体 (`4841789`)
 
-**改动文件:**
-- 更新 `src/protocol.ts` — 新增 AcpTextContent / AcpToolCallContent / AcpToolResultContent / AcpReasoningContent 类型
-- 更新 `src/chatViewProvider.ts` — 按 content 类型分发消息（tuiText / tuiReasoning / tuiToolCall / tuiToolResult）+ 状态变化转发
-- 重写 `src/tuiProcessManager.ts` — 添加自动重试（指数退避，最多 3 次）+ startInternal + onStatusChange
-- 重写 `gui/src/components/ChatView.vue` — appendText 原地追加（打字机）+ appendReasoning + addToolCall/updateToolResult + localStorage 持久化
-- 更新 `gui/src/App.vue` — 新消息路由（tuiText/tuiReasoning/tuiToolCall/tuiToolResult/tuiStatus/tuiCrashed）+ Stop 按钮
-- 更新 `gui/src/components/InputBox.vue` — disabled prop + 禁用样式
-- 更新 `gui/src/components/ContextBar.vue` — Props 化（modelName/turnCount/sessionId）
-- 更新 `docs/PLAN.md` — Phase 2 标记完成
+ChatView localStorage 持久化 + 打字机 + Thinking 流 + 工具卡片样式 + Stop 按钮 + 自动重试
 
-**新功能:**
-1. 流式打字机：ChatView.appendText() 原地追加文本，逐 token 更新无闪烁
-2. Thinking 实时流：appendReasoning() 增量追加 reasoning channel
-3. 工具调用卡片：显示工具名 + JSON 参数 + 结果（pending/success/error 状态）
-4. Stop 按钮：生成中显示红色 ⏹ 按钮，发送 session/cancel
-5. 错误自动重试：TUI 异常退出→指数退避重试（2s→4s→8s，最多 3 次）
-6. 消息缓存：localStorage 自动保存，防抖 500ms，页面重载后恢复
+### docs — 文档骨架 (`6f03c54`)
 
-**构建:** 17.1 KB extension + 210 KB GUI  
-**测试:** 7/7 passed  
-**提交:** `Phase2`
+新增 `docs/BUGLOG.md` `docs/CHANGELOG.md` `docs/PLAN.md`
 
-### 会话 #5 — 日志系统 + 连接状态锁 + 文档
+### fix-test-msg (`e19462f`)
 
-**改动文件:**
-- 新增 `src/logger.ts` — 统一 `[Celest]` 前缀
-- 更新 `src/extension.ts` — 改用 logger
-- 更新 `src/chatViewProvider.ts` — 改用 logger + 连接检查
-- 更新 `src/tuiProcessManager.ts` — 改用 logger + `_started` 锁 + `connected` getter
-- 更新 `gui/src/App.vue` — `tuiReady` 状态 + "Connecting..." 横幅
-- 修复 `src/tuiProcessManager.test.ts` — 匹配新错误文案
-- 新增 `docs/BUGLOG.md` `docs/PLAN.md` `docs/CHANGELOG.md`
+修复 `tuiProcessManager.test.ts` 错误断言
 
-**构建:** 14.4 KB extension + 207 KB GUI  
-**测试:** 7/7 passed  
-**提交:** `logger` `fix-connection-guard` `fix-test-msg`
+### fix-connection-guard (`ebb0d41`)
 
-### 会话 #4 — Vue GUI 资源加载修复
+`_started` 锁 + `tuiReady` 状态 + "Connecting..." 横幅
 
-**问题:** 手写 HTML 硬编码资源路径，CSP 错误 → 404  
-**修复:** 改为读取 Vite 生成的 `index.html`，动态替换路径为 `vscode-resource://`  
-**提交:** `fix-html-csp`
+### logger — 统一日志 (`e4f8843`)
 
-### 会话 #3 — ACP JSON-RPC ID 类型修复
+新增 `src/logger.ts` — 全部模块改用 `[Celest]` 前缀日志
 
-**问题:** ACP 返回字符串 `"id":"1"` vs 数字 `1` 不匹配 → 握手超时  
-**修复:** `jsonRpcClient.ts` 统一用 `String(id)`  
-**提交:** `fix-acp-id-string`
+### fix-html-csp (`93086c2`)
 
-### 会话 #2 — Phase 1 核心实现
+读取 Vite 生成的 index.html，动态替换 CSP + 资源路径
 
-**新增文件:**
-- `src/protocol.ts` — ACP + app-server 类型 (2.4KB)
-- `src/jsonRpcClient.ts` — JSON-RPC 2.0 客户端 (3.2KB)
-- `src/tuiProcessManager.ts` — spawn + ACP 握手 (4.7KB)
-- `gui/src/components/` — 6 个 Vue 组件
-- `vitest.config.ts` + 测试
-- `.github/workflows/ci.yml`
+### fix-acp-id-string (`9c09b51`)
 
-**技术选型:** React → Vue 3（运行体积 -50%）  
-**构建产物:** 12.6 KB extension + 206 KB GUI  
-**提交:** `Phase1`
+`jsonRpcClient.ts` 统一 `String(id)` 比较
 
-### 会话 #1 — Phase 0 项目骨架
+### fix-error-reporting (`f8f8e0b`)
 
-**创建项目:** `E:\git_code\celest`
-- `package.json` — 11 命令 + 2 视图 + 5 快捷键
-- `src/extension.ts` `src/chatViewProvider.ts` `src/sessionsTreeProvider.ts` `src/tuiProcessManager.ts`
-- `build.mjs` `tsconfig.json` `.vscode/` `assets/icon.svg`
-- `AGENTS.md` `ARCHITECTURE.md` `README.md`
-- Git 仓库 + 强制推送到 `github.com/TheEastKoi/celest`
-- **构建产物:** 8.1 KB extension
+spawn error + exit 处理改进 + tmp 测试脚本
+
+### fix-build-bat (`1c60a57`)
+
+`build.bat` PATH 检测修复
+
+### build-scripts (`f1f780a`)
+
+新增 `build.bat` `test.bat`
+
+### Phase1.5 — 协议 + RPC (`c0fe932`)
+
+protocol.ts + jsonRpcClient.ts + tuiProcessManager + chatViewProvider 骨架
+
+### Phase1 — 项目初始化 (`a9acb54`)
+
+25+ 文件：Vue 3 GUI + 6 组件 + build + vitest + CI + 文档
+
+### Phase0 — Git 初始化 (`061a256`)
 
 ---
 
 ## 构建历史
 
-| 日期 | Extension | GUI | 测试 | Commit |
-|------|-----------|-----|------|--------|
-| 05-20 | 17.1 KB | 210 KB | 7/7 | `Phase2` |
-| 05-20 | 14.4 KB | 207 KB | 7/7 | `e19462f` |
-| 05-20 | 14.4 KB | 207 KB | 7/7 | `ebb0d41` |
-| 05-20 | 12.6 KB | 206 KB | 7/7 | `9c09b51` |
-| 05-20 | 12.6 KB | 206 KB | 7/7 | `1c60a57` |
-| 05-20 | 12.6 KB | 206 KB | 7/7 | `f1f780a` |
-| 05-20 | 12.6 KB | 206 KB | 7/7 | `c0fe932` |
-| 05-20 | 8.2 KB | 210 KB | 6/6 | `a9acb54` |
-| 05-20 | 8.1 KB | — | — | `061a256` |
+| 日期 | Commit | 说明 |
+|------|--------|------|
+| 05-23 | (未提交) | Phase 3.1 — 7 fixes + Slash/Help/Sessions/Cancel |
+| 05-21 | `4cbc31f` | HTTP/SSE 协议升级 |
+| 05-20 | `4841789` | Phase 2 主体 |
+| 05-20 | 多个 | Phase 1 ~ Phase 2 各种修复 |

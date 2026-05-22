@@ -82,15 +82,28 @@
 - [x] UI 优化：多行自动扩展输入框 + Stop 浮动右上角 + 模拟打字机 fallback
 - [x] 调试日志：`[DEBUG]` 标记记录 session/update 实际内容结构
 
-## Phase 3: @ / / + 面板 ⏳ (未开始)
+## Phase 3: @ / / + 面板 ✅ (2026-05-21)
 
 **目标:** 在 WebView 中实现 TUI 的交互特性
 
-- [ ] @ 提及自动补全（文件/符号）
-- [ ] / 命令列表（/help /compact /clear /model /review）
-- [ ] Work 面板（解析 todo_write ToolCallResult）
-- [ ] Plan 面板（解析 update_plan ToolCallResult）
-- [ ] 会话列表 TreeView 接入真实数据
+- [x] @ 提及自动补全（文件/符号）— AtMentionPopup.vue + chatViewProvider.getWorkspaceFiles()
+- [x] / 命令列表（/help /compact /clear /model /review）— SlashCommandPopup.vue
+- [x] Work 面板（解析 todo_write ToolCallResult）— WorkPanel.vue + chatViewProvider toolName 映射
+- [x] Plan 面板（解析 update_plan ToolCallResult）— PlanPanel.vue + App.vue Tab 布局
+- [x] 会话列表 TreeView 接入真实数据 — sessionsTreeProvider + tuiProcessManager.listThreads()
+
+**新增文件：**
+- `gui/src/components/AtMentionPopup.vue` — @ 文件提及弹窗（搜索过滤 + 键盘导航）
+- `gui/src/components/SlashCommandPopup.vue` — / 命令弹窗（6 个预定义命令）
+- `gui/src/components/WorkPanel.vue` — Work 面板（todo_write 解析显示）
+- `gui/src/components/PlanPanel.vue` — Plan 面板（update_plan 解析显示）
+
+**修改文件：**
+- `gui/src/components/InputBox.vue` — 集成 @ / 弹窗（检测 + 替换 + 键盘导航）
+- `gui/src/App.vue` — Tab 布局（Chat/Work/Plan）+ 文件列表 + Work/Plan 数据解析
+- `src/chatViewProvider.ts` — 添加 getWorkspaceFiles() + toolNameMap 维护
+- `src/tuiProcessManager.ts` — 添加 listThreads() HTTP API
+- `src/sessionsTreeProvider.ts` — 接入真实 thread 数据源码
 
 ## Phase 4: 审批 + 执行 ⏳ (未开始)
 
@@ -121,5 +134,74 @@
 
 ---
 
-**当前进度:** Phase 2 完成，待进入 Phase 3  
-**最后更新:** 2026-05-20 (commit `Phase2`)
+**当前进度:** Phase 3 完成，待进入 Phase 4  
+**最后更新:** 2026-05-21 (commit `Phase3`)
+
+---
+
+## 🔍 2026-05-21 审查：DeepSeek-TUI 0.8.40 API 兼容性分析
+
+> 基于 `DeepSeek-TUI-new` (v0.8.40, `crates/tui/src/runtime_api.rs`) 的最新 Runtime API 路由。
+
+### ✅ 已验证兼容
+
+| celest 调用 | 实际端点 | 状态 |
+|-------------|---------|------|
+| `GET /health` | `GET /health` | ✅ 一致 |
+| `GET /v1/threads` | `GET /v1/threads` | ✅ 一致 |
+| `POST /v1/threads` | `POST /v1/threads` | ✅ 一致 |
+| `POST /v1/threads/{id}/turns` | `POST /v1/threads/{id}/turns` | ✅ 一致 |
+| `GET /v1/threads/{id}/events?since_seq=0` | `GET /v1/threads/{id}/events?since_seq=0` | ✅ 一致 |
+
+### ⚠️ 需要修复
+
+#### 1. Cancel 机制 — AbortController → interrupt API ✅ 已修复
+
+**现状:** celest 用 `AbortController` 暴力断开 SSE 连接来中断生成。服务端可能继续运行。
+
+**实际 API:** `POST /v1/threads/{id}/turns/{turn_id}/interrupt` — 优雅地中断 turn。
+
+**修复 (2026-05-21):** 
+- tuiProcessManager 新增 `_currentThreadId` / `_currentTurnId` 字段
+- sendPrompt() 保存 threadId + turnId
+- cancel() 先发送 `POST .../interrupt`，失败时 fallback to `AbortController.abort()`
+- 导出 `ThreadSummary` 接口供 sessionsTreeProvider 使用
+
+#### 2. ThreadRecord 数据结构不匹配 ✅ 已修复
+
+**现状:** celest 假设 `preview`/`name`/unix timestamp 字段  
+**实际:** `title`(Option) + ISO 8601 DateTime + `latest_turn_id` + 无 `preview`
+
+**修复 (2026-05-21):**
+- `ThreadSummary` 接口匹配实际字段（id/title/created_at/updated_at/model/mode）
+- sessionsTreeProvider 使用 `t.title` 显示会话名，fallback 到 `Thread {id[0..8]}`
+- `formatDate()` 方法解析 ISO 8601 → 本地化短日期（`new Date(iso)`）
+- tooltip 增加 Model/Mode 信息
+
+#### 3. 未利用的新 API
+
+| 端点 | 用途 | Phase |
+|------|------|-------|
+| `POST /v1/threads/{id}/turns/{turn_id}/interrupt` | 优雅 cancel | 3.x |
+| `POST /v1/threads/{id}/compact` | 压缩对话 | 3.x |
+| `GET /v1/threads/summary` | 线程摘要 | 3.x |
+| `POST /v1/approvals/{id}` | 审批决策 | 4 |
+| `GET /v1/runtime/info` | 运行时信息 | 5 |
+| `GET /v1/workspace/status` | 工作区状态 | 4 |
+
+
+---
+
+## 🐛 Phase 3 BUGLOG 索引
+
+| # | 问题 | 状态 |
+|---|------|------|
+| 1 | / 命令选中后出现双 `//` | ✅ 已修复 |
+| 2 | / 命令弹窗滚动条不跟随 | ✅ 已修复 |
+| 3 | 截图粘贴无法获得文件路径 | ✅ 已修复 |
+| 4 | 首屏加载左右分栏空白 | ✅ 已修复 |
+| 5 | VS Code 右键不加 @ | ✅ 已修复 |
+| 6 | 工具调用卡片默认展开 | ✅ 已修复 |
+| 7 | Tab 切换面板布局歧义 | ✅ 已修复（改为左右分栏） |
+
+详见 `docs/BUGLOG.md`。

@@ -130,3 +130,43 @@
 **根因:** `toolStarted` 事件中的工具名取的是 `event.kind`（值为 `"tool_call"` 或 `"command_execution"`），而非实际工具名（如 `"web_search"`、`"exec_shell"`）。前端 `addToolCard` 用工具名作为 key，`"tool_call"` 无法匹配工具结果中的 `callId`，结果被当作普通文本追加。  
 **修复:** 从 `payload.tool.name` 提取真实工具名，存入 `RuntimeEvent.toolName`。同时修正 `toolCompleted` status 判断（`item.failed` → error，`item.completed` → success），新增 `toolFailed` 事件类型。  
 **参考:** `src/tuiProcessManager.ts:dispatchRawEvent()`, `src/chatViewProvider.ts:toolStarted/toolCompleted`
+
+---
+
+## / 命令选中后出现双 `//`
+
+**时间:** 2026-05-23  
+**现象:** 在输入框输入 `/help`，回车后变为 `//help`。  
+**根因:** `handleSlashSelect` 使用 `insertAtCursor('/' + cmd.name)`，但 `before` 已含 `/`。  
+**修复:** 用 `lastIndexOf('/', cursor)` 精确定位 `/` 开始位置，`before = text.slice(0, slashPos)`，精确替换。  
+**参考:** `InputBox.vue:handleSlashSelect`
+
+---
+
+## / 命令弹窗滚动条不跟随
+
+**时间:** 2026-05-23  
+**现象:** 键盘 ↓ 选择到底部命令时滚动条不跟随。  
+**根因:** 弹窗没有主动 `scrollIntoView`。  
+**修复:** AtMentionPopup + SlashCommandPopup 添加 `watch(selectedIdx)` + `scrollIntoView({ block: 'nearest' })`。  
+**参考:** `AtMentionPopup.vue`, `SlashCommandPopup.vue`
+
+---
+
+## 截图粘贴无法获得文件路径
+
+**时间:** 2026-05-23  
+**现象:** Windows 截图粘贴到对话框无法获得路径。  
+**根因:** 剪贴板图片是 blob，WebView 无法获取本地路径。  
+**修复:** InputBox 检测 blob → `pasteImage` 消息 → chatViewProvider 保存到 temp → `pasteImageResult` → 替换占位为 @path。  
+**参考:** `InputBox.vue:handlePaste`, `chatViewProvider.ts`
+
+---
+
+## 首屏加载左右分栏空白
+
+**时间:** 2026-05-23  
+**现象:** 插件首次激活时左侧空白，需拖拽分隔条才渲染。  
+**根因:** `initSplitWidth()` 调用时 DOM 未完成 layout，`clientWidth = 0`。  
+**修复:** `nextTick()` 包裹 + `ResizeObserver` 持续监听 + 比例改为百分比（65%/35%）。  
+**参考:** `App.vue:initSplitWidth`

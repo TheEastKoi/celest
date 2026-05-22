@@ -1,103 +1,73 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { TuiProcessManager, type RuntimeEvent } from './tuiProcessManager';
 import { logger } from './logger';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _promptSeq = 0;
+    private _toolNameMap = new Map<string, string>();
 
     constructor(
         private context: vscode.ExtensionContext,
         private tuiManager: TuiProcessManager,
     ) {
-        // ── 原生运行时事件 → WebView 消息路由 ──
         this.tuiManager.onEvent((event: RuntimeEvent) => {
             switch (event.event) {
-                // ── Reasoning / Thinking ──
                 case 'reasoningStarted':
-                    logger.info('[SSE→GUI] reasoningStarted');
-                    // Thinking 块开始（不发送单独消息，前端在首次 reasoningDelta 时创建）
                     break;
-
                 case 'reasoningDelta':
-                    // 真正的 reasoning 流式！逐字推送
                     if (event.delta) {
-                        logger.info(`[SSE→GUI] reasoningDelta (${event.delta.length} chars)`);
                         this.postMessage({ type: 'tuiReasoning', reasoning: event.delta });
                     }
                     break;
-
                 case 'reasoningDone':
-                    logger.info('[SSE→GUI] reasoningDone');
                     this.postMessage({ type: 'tuiReasoningDone' });
                     break;
-
-                // ── 文本消息 ──
                 case 'messageDelta':
-                    // agent_message 文本流式输出
                     if (event.delta) {
-                        logger.info(`[SSE→GUI] messageDelta (${event.delta.length} chars)`);
                         this.postMessage({ type: 'tuiText', text: event.delta, sessionId: 'http-sse' });
                     }
                     break;
-
-                // ── 工具调用 ──
                 case 'toolStarted': {
                     let input: Record<string, unknown> = {};
                     try { input = JSON.parse(event.delta || '{}'); } catch { /* keep empty */ }
-                    const toolCall = {
-                        name: event.toolName || event.kind || 'tool',
-                        arguments: input,
-                        callId: event.itemId || String(Date.now()),
-                    };
-                    logger.info(`[SSE→GUI] toolStarted name=${toolCall.name} id=${toolCall.callId}`);
+                    const callId = event.itemId || String(Date.now());
+                    const toolName = event.toolName || event.kind || 'tool';
+                    this._toolNameMap.set(callId, String(toolName));
+                    const toolCall = { name: toolName, arguments: input, callId };
                     this.postMessage({ type: 'tuiToolCall', toolCall });
                     break;
                 }
-
                 case 'toolProgress':
-                    // Shell 输出实时流
                     if (event.delta) {
                         this.postMessage({
                             type: 'tuiToolProgress',
-                            toolResult: {
-                                callId: event.itemId || '',
-                                output: event.delta,
-                                status: 'running' as const,
-                            },
+                            toolResult: { callId: event.itemId || '', output: event.delta, status: 'running' as const },
                         });
                     }
                     break;
-
                 case 'toolCompleted':
                 case 'toolFailed': {
+                    const callId = event.itemId || '';
+                    const toolName = this._toolNameMap.get(callId) || '';
                     const output = event.delta || '';
-                    const toolResult = {
-                        callId: event.itemId || '',
-                        output,
-                        status: (event.event === 'toolFailed' ? 'error' : 'success'),
-                    };
-                    logger.info(`[SSE→GUI] ${event.event} id=${toolResult.callId} status=${toolResult.status}`);
+                    const toolResult = { callId, output, status: (event.event === 'toolFailed' ? 'error' : 'success') as string, toolName };
                     this.postMessage({ type: 'tuiToolResult', toolResult });
+                    if (callId) this._toolNameMap.delete(callId);
                     break;
                 }
-
-                // ── 回合控制 ──
                 case 'turnCompleted':
-                    logger.info('[SSE→GUI] turnCompleted → promptEnded');
                     this.postMessage({ type: 'promptEnded' });
                     break;
-
-                // 崩溃
                 case 'tuiCrashed':
                     this.postMessage({ type: 'tuiCrashed', message: 'TUI process crashed' });
                     break;
             }
         });
 
-        // ── 状态变化转发 ──
         this.tuiManager.onStatusChange(({ status }) => {
             this.postMessage({ type: 'tuiStatus', status });
         });
@@ -114,7 +84,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     postMessage(message: unknown): void { this._view?.webview.postMessage(message); }
     newSession(): void { this.postMessage({ type: 'newSession' }); }
 
-    addSelectionToChat(): void {
+    addToChat(uri?: vscode.Uri): void {
+        if (uri) {
+            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+            const rel = wsRoot ? path.relative(wsRoot, uri.fsPath) : uri.fsPath;
+            this.postMessage({ type: 'addAtMention', path: rel });
+            return;
+        }
         const editor = vscode.window.activeTextEditor;
         if (editor && !editor.selection.isEmpty) {
             this.postMessage({ type: 'addContext', text: editor.document.getText(editor.selection) });
@@ -133,16 +109,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 const mySeq = ++this._promptSeq;
                 if (mySeq > 1) this.tuiManager.cancel();
                 try {
-                    logger.info(`[Thread] sendPrompt start (seq=${mySeq})`);
                     await this.tuiManager.sendPrompt(msg.prompt);
-                    if (mySeq !== this._promptSeq) {
-                        logger.info(`[Thread] seq=${mySeq} discarded`);
-                        return;
-                    }
-                    logger.info(`[Thread] sendPrompt done (seq=${mySeq})`);
+                    if (mySeq !== this._promptSeq) return;
                 } catch (err: any) {
                     if (mySeq !== this._promptSeq) return;
-                    logger.error(`[Thread] sendPrompt error:`, err.message);
                     this.postMessage({ type: 'promptError', error: err.message });
                 }
                 break;
@@ -154,11 +124,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             case 'openNewWindow':
                 vscode.commands.executeCommand('workbench.action.newWindow');
                 break;
+            case 'getFiles': {
+                const files = await this.getWorkspaceFiles();
+                this.postMessage({ type: 'fileList', files });
+                break;
+            }
+            case 'pasteImage': {
+                const filePath = await this.savePastedImage(msg.fileName, msg.data);
+                this.postMessage({ type: 'pasteImageResult', fileName: msg.fileName, filePath });
+                break;
+            }
             case 'ready':
-                logger.info('GUI ready');
                 this.postMessage({ type: 'tuiConnected', sessionId: `http://127.0.0.1:${this.tuiManager.port}` });
                 break;
         }
+    }
+
+    /** 保存粘贴的图片到临时目录，返回路径 */
+    private async savePastedImage(fileName: string, base64Data: string): Promise<string> {
+        const tmpDir = path.join(os.tmpdir(), 'celest-images');
+        fs.mkdirSync(tmpDir, { recursive: true });
+        const filePath = path.join(tmpDir, fileName);
+        const buffer = Buffer.from(base64Data, 'base64');
+        fs.writeFileSync(filePath, buffer);
+        // 返回相对工作区的路径（如果可能），否则返回绝对路径
+        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+        return wsRoot ? path.relative(wsRoot, filePath) : filePath;
     }
 
     private buildHtml(webview: vscode.Webview, guiDir: vscode.Uri): string {
@@ -173,6 +164,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource}; font-src ${webview.cspSource};">`;
         html = html.replace('<head>', '<head>\n' + csp);
         return html;
+    }
+
+    private async getWorkspaceFiles(): Promise<Array<{name:string; relativePath:string; path:string; isDir:boolean}>> {
+        const uris = await vscode.workspace.findFiles(
+            '**/*',
+            '{**/node_modules/**,**/.git/**,**/target/**,**/dist/**,**/out/**,**/__pycache__/**,**/*.exe,**/*.dll,**/*.so}',
+            2000,
+        );
+        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+        return uris.map(u => {
+            const abs = u.fsPath;
+            const rel = wsRoot ? path.relative(wsRoot, abs) : abs;
+            return { name: path.basename(abs), relativePath: rel, path: abs, isDir: false };
+        });
     }
 
     private fallbackHtml(): string {

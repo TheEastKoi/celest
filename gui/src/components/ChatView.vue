@@ -26,19 +26,25 @@
                         :content="part.content || ''"
                     />
                     <div v-else-if="part.type === 'tool_call'" class="tool-call-card">
-                        <div class="tool-call-header">
+                        <div class="tool-call-header" @click="toggleToolCard(pIdx, part)">
+                            <span class="tool-collapse-icon">{{ part._collapsed === false ? '▼' : '▶' }}</span>
                             <span class="tool-icon">🔧</span>
                             <span class="tool-name">{{ part.toolName }}</span>
                             <span v-if="part.status" class="tool-status" :class="'status-' + part.status">
                                 {{ part.status }}
                             </span>
+                            <span v-if="part.result && part._collapsed !== false" class="tool-result-preview">
+                                {{ toolResultPreview(part.result) }}
+                            </span>
                         </div>
-                        <div v-if="part.arguments" class="tool-call-args">
-                            <pre>{{ formatArgs(part.arguments) }}</pre>
-                        </div>
-                        <div v-if="part.result" class="tool-call-result">
-                            <div class="result-label">Result:</div>
-                            <pre>{{ formatResult(part.result) }}</pre>
+                        <div v-if="part._collapsed === false" class="tool-call-body">
+                            <div v-if="part.arguments" class="tool-call-args">
+                                <pre>{{ formatArgs(part.arguments) }}</pre>
+                            </div>
+                            <div v-if="part.result" class="tool-call-result">
+                                <div class="result-label">Result:</div>
+                                <pre>{{ formatResult(part.result) }}</pre>
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -249,6 +255,22 @@ function formatResult(result: unknown): string {
     return JSON.stringify(result, null, 2);
 }
 
+/** 切换工具卡片折叠状态 */
+function toggleToolCard(_pIdx: number, part: any) {
+    if (part._collapsed === false) {
+        part._collapsed = true;  // 折叠回默认
+    } else {
+        part._collapsed = false; // 展开
+    }
+}
+
+/** 工具结果折叠时的预览文本（最多 60 字符） */
+function toolResultPreview(result: unknown): string {
+    const s = typeof result === 'string' ? result : JSON.stringify(result);
+    const oneLine = s.replace(/\n/g, ' ').trim();
+    return oneLine.length > 60 ? oneLine.slice(0, 60) + '…' : oneLine;
+}
+
 // ── Scroll ────────────────────────────────────────────────────
 
 function scrollToBottom() {
@@ -320,7 +342,10 @@ defineExpose({
     gap: 6px;
     padding: 6px 10px;
     background: var(--vscode-textBlockQuote-background);
+    cursor: pointer;
+    user-select: none;
 }
+.tool-collapse-icon { font-size: 10px; flex-shrink: 0; width: 12px; }
 .tool-icon { font-size: 14px; }
 .tool-name { font-weight: 600; }
 .tool-status {
@@ -340,6 +365,19 @@ defineExpose({
 .status-error {
     background: #f8514944;
     color: #f85149;
+}
+.tool-result-preview {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    margin-left: 8px;
+    opacity: 0.7;
+}
+.tool-call-body {
+    border-top: 1px solid var(--vscode-panel-border);
 }
 .tool-call-args {
     padding: 4px 10px;

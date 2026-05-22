@@ -1,16 +1,7 @@
 import * as vscode from 'vscode';
 import { TuiProcessManager } from './tuiProcessManager';
+import { logger } from './logger';
 
-interface SessionItem {
-    id: string;
-    preview: string;
-    updatedAt: number;
-}
-
-/**
- * 会话列表 TreeView Provider。
- * 通过 TUI 的 thread/list RPC 获取数据。
- */
 export class SessionsTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     private _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -26,26 +17,55 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<vscode.Tree
     }
 
     async getChildren(): Promise<vscode.TreeItem[]> {
-        // Phase 1: 调用 tuiManager.send('thread/list') 获取真实数据
-        // Phase 0: 返回占位列表
-        return [
-            this.makeItem('session-1', 'Example: Code refactor discussion', Date.now()),
-            this.makeItem('session-2', 'Example: Debug API endpoint', Date.now() - 3600000),
-        ];
+        try {
+            const threads = await this.tuiManager.listThreads();
+            if (threads.length === 0) {
+                return [this.makePlaceholder('No sessions yet. Send a prompt to create one.')];
+            }
+            return threads.map(t => {
+                // 使用 title，fallback 到 Thread ID 前 8 位
+                const label = t.title || `Thread ${t.id.slice(0, 8)}`;
+                // 解析 ISO 8601 时间为本地化显示
+                const date = this.formatDate(t.updated_at);
+                const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
+                item.id = t.id;
+                item.tooltip = `${label}\nModel: ${t.model || 'unknown'}\nMode: ${t.mode || 'unknown'}\nUpdated: ${date}`;
+                item.description = date;
+                item.command = {
+                    command: 'celest.focusInput',
+                    title: 'Open Session',
+                    arguments: [t.id],
+                };
+                item.contextValue = 'session';
+                item.iconPath = new vscode.ThemeIcon('comment-discussion');
+                return item;
+            });
+        } catch (err: any) {
+            logger.error('Failed to list threads:', err.message);
+            return [this.makePlaceholder(`Error loading sessions: ${err.message}`)];
+        }
     }
 
-    private makeItem(id: string, preview: string, updatedAt: number): vscode.TreeItem {
-        const item = new vscode.TreeItem(
-            preview,
-            vscode.TreeItemCollapsibleState.None,
-        );
-        item.id = id;
-        item.tooltip = preview;
-        item.command = {
-            command: 'celest.focusInput',
-            title: 'Open Session',
-            arguments: [id],
-        };
+    /** ISO 8601 → 本地化短日期 */
+    private formatDate(iso: string): string {
+        if (!iso) return 'unknown';
+        try {
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return iso.slice(0, 10); // fallback to date portion
+            return d.toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+        } catch {
+            return iso.slice(0, 10);
+        }
+    }
+
+    private makePlaceholder(text: string): vscode.TreeItem {
+        const item = new vscode.TreeItem(text, vscode.TreeItemCollapsibleState.None);
+        item.tooltip = text;
         return item;
     }
 }

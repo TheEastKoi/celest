@@ -28,7 +28,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('celest.viewHistory', () => chatProvider.postMessage({ type: 'showHistory' })),
         vscode.commands.registerCommand('celest.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', 'celest')),
         vscode.commands.registerCommand('celest.focusInput', () => chatProvider.postMessage({ type: 'focusInput' })),
-        vscode.commands.registerCommand('celest.addToChat', () => chatProvider.addSelectionToChat()),
+        vscode.commands.registerCommand('celest.addToChat', (uri?: vscode.Uri) => chatProvider.addToChat(uri)),
         vscode.commands.registerCommand('celest.clearChat', () => chatProvider.clearChat()),
         vscode.commands.registerCommand('celest.applyCode', () => chatProvider.postMessage({ type: 'applyCode' })),
         vscode.commands.registerCommand('celest.acceptDiff', () => chatProvider.postMessage({ type: 'acceptDiff' })),

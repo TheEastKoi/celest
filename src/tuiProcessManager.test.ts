@@ -15,10 +15,10 @@ describe('TuiProcessManager', () => {
         expect(manager).toBeDefined();
     });
 
-    it('should expose sessionId as undefined before start', () => {
+    it('should expose port as 0 before start', () => {
         const context = { subscriptions: [], globalStorageUri: { fsPath: '/tmp' } } as any;
         const manager = new TuiProcessManager(context);
-        expect(manager.sessionId).toBeUndefined();
+        expect(manager.port).toBe(0);
     });
 
     it('should throw when sending prompt without connection', async () => {
@@ -27,15 +27,22 @@ describe('TuiProcessManager', () => {
         await expect(manager.sendPrompt('hello')).rejects.toThrow('TUI not yet connected');
     });
 
-    it('cancel() should not throw when not connected', async () => {
+    it('cancel() should not throw when not connected', () => {
         const context = { subscriptions: [], globalStorageUri: { fsPath: '/tmp' } } as any;
         const manager = new TuiProcessManager(context);
-        await expect(manager.cancel()).resolves.toBeUndefined();
+        expect(() => manager.cancel()).not.toThrow();
     });
 
     it('dispose() should not throw', () => {
         const context = { subscriptions: [], globalStorageUri: { fsPath: '/tmp' } } as any;
         const manager = new TuiProcessManager(context);
         expect(() => manager.dispose()).not.toThrow();
+    });
+
+    it('listThreads() should return empty array when not connected', async () => {
+        const context = { subscriptions: [], globalStorageUri: { fsPath: '/tmp' } } as any;
+        const manager = new TuiProcessManager(context);
+        const threads = await manager.listThreads();
+        expect(threads).toEqual([]);
     });
 });

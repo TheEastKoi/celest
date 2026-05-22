@@ -16,8 +16,20 @@ export interface RuntimeEvent {
     turnId?: string;
 }
 
+/** listThreads 返回类型 — 匹配 TUI 0.8.40 ThreadRecord */
+export interface ThreadSummary {
+    id: string;
+    title?: string;
+    created_at: string;   // ISO 8601 e.g. "2026-05-21T08:30:00Z"
+    updated_at: string;
+    model?: string;
+    mode?: string;
+    latest_turn_id?: string;
+    archived?: boolean;
+}
+
 /**
- * TUI 进程管理器 — HTTP/SSE Threads 版本
+ * TUI 进程管理器 — HTTP/SSE Threads 版本 (DeepSeek-TUI 0.8.40+)
  *
  * 启动 deepseek-tui serve --http，通过 Threads API 发送 prompt，
  * 监听 GET /v1/threads/{id}/events 获取完整事件（含 reasoning）。
@@ -31,6 +43,9 @@ export class TuiProcessManager {
     private _retryDelay = 2000;
     private _disposed = false;
     private _currentAbort?: AbortController;
+    // Phase 3.x: 保存 threadId/turnId 用于优雅 cancel
+    private _currentThreadId?: string;
+    private _currentTurnId?: string;
 
     private _onEvent = new vscode.EventEmitter<RuntimeEvent>();
     readonly onEvent = this._onEvent.event;
@@ -54,6 +69,8 @@ export class TuiProcessManager {
 
         const controller = new AbortController();
         this._currentAbort = controller;
+        this._currentThreadId = undefined;
+        this._currentTurnId = undefined;
         const base = `http://127.0.0.1:${this._port}/v1`;
 
         try {
@@ -73,6 +90,7 @@ export class TuiProcessManager {
             });
             const thread = await tResp.json() as any;
             const threadId: string = thread.id;
+            this._currentThreadId = threadId;
             logger.info(`[Thread] created: ${threadId}`);
 
             // 2. 发送 prompt（不阻塞，立即返回）
@@ -87,6 +105,7 @@ export class TuiProcessManager {
             const eventsPromise = this.streamEvents(threadId, controller.signal);
 
             const [turn] = await Promise.all([turnPromise, eventsPromise]);
+            this._currentTurnId = turn?.id;
             logger.info(`[Thread] turn: ${turn?.id} status=${turn?.status}`);
 
         } catch (err: any) {
@@ -102,8 +121,47 @@ export class TuiProcessManager {
         }
     }
 
+    /** 列出已知 thread（会话列表）— 匹配 TUI 0.8.40 GET /v1/threads */
+    async listThreads(): Promise<ThreadSummary[]> {
+        if (!this._started) return [];
+        try {
+            const base = `http://127.0.0.1:${this._port}/v1`;
+            const resp = await fetch(`${base}/threads`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            if (!resp.ok) return [];
+            const threads: any[] = await resp.json();
+            if (!Array.isArray(threads)) return [];
+            return threads.map(t => ({
+                id: t.id || '',
+                title: t.title || undefined,
+                created_at: t.created_at || '',
+                updated_at: t.updated_at || '',
+                model: t.model,
+                mode: t.mode,
+                latest_turn_id: t.latest_turn_id,
+                archived: t.archived,
+            }));
+        } catch {
+            return [];
+        }
+    }
+
+    /** 取消当前生成 — 优先使用 HTTP interrupt API，失败时 fallback abort */
     cancel(): void {
-        logger.info('[Thread] cancelling');
+        logger.info('[Thread] cancelling...');
+        // 1. 尝试 HTTP interrupt（优雅中断）
+        if (this._currentThreadId && this._currentTurnId) {
+            const url = `http://127.0.0.1:${this._port}/v1/threads/${this._currentThreadId}/turns/${this._currentTurnId}/interrupt`;
+            fetch(url, { method: 'POST' })
+                .then(r => {
+                    if (r.ok) logger.info('[Thread] interrupt sent successfully');
+                    else logger.info(`[Thread] interrupt returned HTTP ${r.status}`);
+                })
+                .catch(e => logger.info('[Thread] interrupt request failed:', e.message));
+        }
+        // 2. Fallback: abort SSE connection
         this._currentAbort?.abort();
     }
 
@@ -177,7 +235,6 @@ export class TuiProcessManager {
                     this._onEvent.fire({ event: 'reasoningStarted', kind });
                 } else if (kind === 'tool_call' || kind === 'command_execution' || kind === 'file_change') {
                     const tool = p.tool || {};
-                    // 从 tool.name 或 tool.detail 获取真实工具名
                     const toolName = tool.name || tool.detail || item.detail || kind;
                     this._onEvent.fire({
                         event: 'toolStarted',
@@ -194,7 +251,6 @@ export class TuiProcessManager {
             case 'item.delta': {
                 const d = p.delta || '';
                 if (kind === 'agent_reasoning') {
-                    // 真正的 reasoning 流式！
                     this._onEvent.fire({ event: 'reasoningDelta', delta: d, kind });
                 } else if (kind === 'agent_message') {
                     this._onEvent.fire({ event: 'messageDelta', delta: d, kind });
@@ -210,7 +266,6 @@ export class TuiProcessManager {
                 } else if (kind === 'agent_message') {
                     // 消息完成（不需要额外操作）
                 } else if (kind === 'tool_call' || kind === 'command_execution' || kind === 'file_change') {
-                    // item.failed → error, item.completed → success
                     const isSuccess = eventName === 'item.completed';
                     const detail = typeof item.detail === 'string' ? item.detail
                         : (typeof item.summary === 'string' ? item.summary : JSON.stringify(item.detail || item.summary || ''));
