@@ -12,13 +12,13 @@ const guiOutDir = path.join(outDir, 'gui');
 function copyGuiOutput() {
     const guiDist = path.join(root, 'gui', 'dist');
     if (!fs.existsSync(guiDist)) {
-        console.warn('⚠ GUI dist not found at', guiDist);
+        console.warn('WARN GUI dist not found at', guiDist);
         return;
     }
-    fs.rmSync(guiOutDir, { recursive: true, force: true });
+    try { fs.rmSync(guiOutDir, { recursive: true, force: true }); } catch { /* ok if missing */ }
     fs.mkdirSync(guiOutDir, { recursive: true });
     fs.cpSync(guiDist, guiOutDir, { recursive: true });
-    console.log('✅ GUI copied to', path.relative(root, guiOutDir));
+    console.log('OK GUI copied to', path.relative(root, guiOutDir));
 }
 
 function runViteBuild() {

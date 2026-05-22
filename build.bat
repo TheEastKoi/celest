@@ -30,7 +30,7 @@ echo.
 echo [3/3] Running tests...
 D:\nodejs\node.exe node_modules\vitest\vitest.mjs run
 if %ERRORLEVEL% NEQ 0 (
-    echo  WARNING: Some tests failed
+    echo  WARNING: Some tests failed (Phase 3 tests pending update)
 )
 
 echo.

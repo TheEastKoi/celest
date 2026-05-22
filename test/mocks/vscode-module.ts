@@ -46,6 +46,7 @@ const vscode = {
         }
     },
     TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
+    ThemeIcon: class { constructor(public id: string) {} },
     Uri: {
         joinPath: (...args: string[]) => ({ path: args.join('/'), with: () => ({ path: '' }) }),
         parse: (s: string) => ({ fsPath: s, path: s }),

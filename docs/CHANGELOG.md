@@ -56,6 +56,8 @@
 - `TEST_PLAN.md` — Phase 3 测试策略 + 静态检查项
 - `INTEGRATION_TEST.md` — Phase 3 10 章集成测试用例
 
+![image-20260523023820260](C:\Users\59805\AppData\Roaming\Typora\typora-user-images\image-20260523023820260.png)
+
 ---
 
 ## 2026-05-21

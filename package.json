@@ -6,17 +6,30 @@
     "type": "git",
     "url": "https://github.com/TheEastKoi/celest"
   },
-  "extensionKind": ["ui", "workspace"],
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
   "license": "Apache-2.0",
   "displayName": "Celest",
   "description": "DeepSeek V4 powered AI coding agent for VS Code",
   "publisher": "TheEastKoi",
   "engines": {
     "vscode": "^1.70.0",
-    "node": ">=18.0.0"
+    "node": ">=18.18.0"
   },
-  "categories": ["AI", "Chat", "Machine Learning"],
-  "keywords": ["deepseek", "ai", "agent", "coding", "celest"],
+  "categories": [
+    "AI",
+    "Chat",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "deepseek",
+    "ai",
+    "agent",
+    "coding",
+    "celest"
+  ],
   "activationEvents": [
     "onStartupFinished",
     "onView:celest.chatPanel"
@@ -165,9 +178,15 @@
     },
     "menus": {
       "commandPalette": [
-        { "command": "celest.newSession" },
-        { "command": "celest.focusInput" },
-        { "command": "celest.openSettings" }
+        {
+          "command": "celest.newSession"
+        },
+        {
+          "command": "celest.focusInput"
+        },
+        {
+          "command": "celest.openSettings"
+        }
       ],
       "editor/context": [
         {
@@ -224,7 +243,7 @@
     "@vscode/test-electron": "^2.4.0",
     "@vscode/vsce": "^2.22.0",
     "esbuild": "^0.25.0",
-    "typescript": "^5.6.0",
+    "typescript": "5.5.4",
     "vite": "^5.0.0",
     "@vitejs/plugin-vue": "^5.0.0",
     "vitest": "^1.0.0",
