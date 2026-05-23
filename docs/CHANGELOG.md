@@ -1,3 +1,21 @@
+## 2026-05-23 (Phase 4)
+
+### Phase 4 — 审批 + 执行
+
+**核心实现：**
+- `tuiProcessManager.ts` — `auto_approve` 从硬编码 `true` 改为可配置 `false`，新增 `decideApproval()` 方法
+- SSE `approval.required` / `approval.decided` / `approval.timeout` 事件处理
+- `ApprovalPopup.vue` — 审批弹窗组件（工具名 + 描述 + 300 秒倒计时）
+- 三种决策：Allow / Allow (Session) / Deny，会话级批准后线程自动跳过后续审批
+- `chatViewProvider.ts` — `tuiApprovalRequired` / `approvalDecision` 消息路由
+- `App.vue` — 审批状态管理 + 弹窗集成
+
+**构建验证：** ext 28.9 KB, gui 247 KB, vitest 11/11 passed
+
+**待完成：** Shell 输出实时流验证、Diff Editor 预览
+
+---
+
 ## 2026-05-23 (晚间)
 
 ### Help 面板 TUI 完整对齐

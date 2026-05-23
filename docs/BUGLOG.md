@@ -4,6 +4,41 @@
 
 ---
 
+## SSE 审批事件字段全部为空 (2026-05-24) ⭐
+
+**现象:** 审批弹窗只显示扳手图标，工具名和描述为空；`approvalId` 也为空 → Deny/Allow 报 404。
+**根因:** TUI `/v1/threads/{id}/events` 端点返回的 SSE data 是外层包装格式：
+```json
+{"seq":..., "thread_id":..., "payload": {"tool_name":"exec_shell", "description":"..."}}
+```
+而 `dispatchRawEvent` 中三个审批处理器直接读顶层字段 `payload.tool_name` → `undefined` → 空字符串。
+**修复:** 先解包 `inner = payload.payload || payload`，再从 `inner` 取字段。同时修复 `approval.required`、`approval.decided`、`approval.timeout` 三个处理器。注意 `item.*` 事件已有 `const p = payload.payload || {}` 逻辑，不受影响。
+
+---
+
+## trust_mode: true 导致审批被跳过 (2026-05-24)
+
+## Phase 4 设计决策：auto_approve 开关 (2026-05-23)
+
+**背景:** 审批流程中用户可能希望一键批准当前会话的所有后续工具调用。
+
+**决策:** `tuiProcessManager.autoApprove` 暴露为 getter/setter。当用户在审批弹窗中选择 "Allow (Session)"（`remember: true`）时：
+1. celest 发送 `POST /v1/approvals/{id}` 带 `{ decision: "allow", remember: true }`
+2. TUI 内部调用 `remember_thread_auto_approve()` 标记该线程
+3. celest 同步 `this._autoApprove = true`，后续新 thread 创建时 `auto_approve: true`
+
+**关键点:** `remember` 是会话级别的——同一 thread 的后续工具调用自动批准。新建 thread 时如果 `_autoApprove` 已设 true 也会自动批准。
+
+---
+
+## Vue 模板中不能使用 JavaScript 块注释 (2026-05-23)
+
+**现象:** `vite build` 报错 `Error parsing JavaScript expression: Unexpected token`
+**根因:** `ApprovalPopup.vue` 模板中 `@click.self="/* ignore backdrop click */"` 使用了 JS 块注释 `/* */`。Vue 模板编译器在解析属性表达式时不支持块注释。
+**修复:** 移除注释，Vue SFC 模板属性应使用无操作或空字符串，注释放在 `<script>` 中。
+
+---
+
 ## ACP JSON-RPC ID 类型不匹配
 
 **时间:** 2026-05-20  

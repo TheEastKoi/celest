@@ -28,6 +28,8 @@
 | ⚡ / 命令 — 63 个斜杠命令，A-Z 排序，中文别名 | ✅ |
 | ❓ Help 面板 — 64 命令 + 43 快捷键，分类展示 | ✅ |
 | 📂 会话列表 — TreeView 真实数据（Threads API） | ✅ |
+| 🔐 审批弹窗 — 工具执行前确认（允许/拒绝/信任会话），类 TUI 终端 UI | ✅ |
+| 📄 Diff 预览 — View Diff 按钮打开 VS Code diff editor | ✅ |
 | 🖼️ 粘贴图片 — 截图粘贴自动保存为 @path | ✅ |
 | ⏹ Stop 按钮 — 中断生成（interrupt API + fallback） | ✅ |
 | 🔄 自动重试 — TUI 崩溃指数退避重连 | ✅ |
@@ -133,7 +135,8 @@ celest/
 │           ├── PlanPanel.vue     update_plan 解析
 │           ├── HelpPanel.vue     Help 面板
 │           ├── AtMentionPopup.vue @ 提及
-│           └── SlashCommandPopup.vue / 命令
+│           ├── SlashCommandPopup.vue / 命令
+│           └── ApprovalPopup.vue   审批弹窗 (Phase 4)
 ├── docs/                         文档
 │   ├── PLAN.md                   开发计划
 │   ├── CHANGELOG.md              开发日志
@@ -173,7 +176,7 @@ npx vitest run
 | 1 | TUI 通信 + Vue GUI | ✅ |
 | 2 | 聊天核心强化 (HTTP/SSE) | ✅ |
 | 3 | @ / / 面板 + 会话列表 | ✅ |
-| 4 | 审批 + 执行 | ⏳ |
+| 4 | 审批 + 执行 | ✅ |
 | 5 | 配置 + 模型切换 | ⏳ |
 | 6 | 打磨 + Marketplace 发布 | ⏳ |
 

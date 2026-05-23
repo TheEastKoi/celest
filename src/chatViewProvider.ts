@@ -2,13 +2,35 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+import * as cp from 'node:child_process';
 import { TuiProcessManager, type RuntimeEvent } from './tuiProcessManager';
 import { logger } from './logger';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _promptSeq = 0;
-    private _toolNameMap = new Map<string, string>();
+    private _toolCache = new Map<string, { toolName: string; args: Record<string, unknown> }>();
+
+    /** Phase 4: 工具元数据映射（类型/影响），TUI SSE 不传这些字段 */
+    private static readonly TOOL_META: Record<string, { type: string; impact: string }> = {
+        exec_shell:              { type: 'Shell 命令',         impact: '高 — 可执行任意系统命令' },
+        write_file:              { type: '文件写入',           impact: '中 — 修改文件内容' },
+        edit_file:               { type: '文件编辑',           impact: '中 — 修改文件片段' },
+        apply_patch:             { type: '补丁应用',           impact: '中 — 批量修改文件' },
+        code_execution:          { type: '代码执行',           impact: '高 — 执行 Python 代码' },
+        js_execution:            { type: '代码执行',           impact: '高 — 执行 JavaScript 代码' },
+        task_shell_start:        { type: '后台 Shell 命令',    impact: '高 — 后台执行系统命令' },
+        list_dir:                { type: '目录列表',           impact: '低 — 只读操作' },
+        read_file:               { type: '文件读取',           impact: '低 — 只读操作' },
+        grep_files:              { type: '内容搜索',           impact: '低 — 只读操作' },
+        file_search:             { type: '文件搜索',           impact: '低 — 只读操作' },
+        web_search:              { type: '网络搜索',           impact: '低 — 只读操作' },
+        fetch_url:               { type: '网络请求',           impact: '中 — 访问外部资源' },
+        github_issue_context:    { type: 'GitHub 查询',        impact: '低 — 只读操作' },
+        github_pr_context:       { type: 'GitHub 查询',        impact: '低 — 只读操作' },
+        checklist_write:         { type: '任务管理',           impact: '低 — 修改内部状态' },
+        update_plan:             { type: '计划管理',           impact: '低 — 修改内部状态' },
+    };
 
     constructor(
         private context: vscode.ExtensionContext,
@@ -36,7 +58,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     try { input = JSON.parse(event.delta || '{}'); } catch { /* keep empty */ }
                     const callId = event.itemId || String(Date.now());
                     const toolName = event.toolName || event.kind || 'tool';
-                    this._toolNameMap.set(callId, String(toolName));
+                    this._toolCache.set(callId, { toolName: String(toolName), args: input });
+                    logger.info(`[ToolCache] stored id="${callId}" tool=${toolName} args=${JSON.stringify(input).slice(0, 200)}`);
                     const toolCall = { name: toolName, arguments: input, callId };
                     this.postMessage({ type: 'tuiToolCall', toolCall });
                     break;
@@ -52,11 +75,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'toolCompleted':
                 case 'toolFailed': {
                     const callId = event.itemId || '';
-                    const toolName = this._toolNameMap.get(callId) || '';
+                    const toolName = this._toolCache.get(callId)?.toolName || '';
                     const output = event.delta || '';
                     const toolResult = { callId, output, status: (event.event === 'toolFailed' ? 'error' : 'success') as string, toolName };
                     this.postMessage({ type: 'tuiToolResult', toolResult });
-                    if (callId) this._toolNameMap.delete(callId);
+                    if (callId) this._toolCache.delete(callId);
                     break;
                 }
                 case 'turnCompleted':
@@ -65,11 +88,57 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'tuiCrashed':
                     this.postMessage({ type: 'tuiCrashed', message: 'TUI process crashed' });
                     break;
+                // Phase 4: 审批决定后通知前端
+                case 'approvalDecided':
+                    this.postMessage({
+                        type: 'tuiApprovalDecided',
+                        approvalId: event.itemId,
+                        decision: event.delta,
+                    });
+                    break;
+                case 'approvalTimeout':
+                    this.postMessage({
+                        type: 'tuiApprovalTimeout',
+                        approvalId: event.itemId,
+                    });
+                    break;
             }
         });
 
         this.tuiManager.onStatusChange(({ status }) => {
             this.postMessage({ type: 'tuiStatus', status });
+        });
+
+        // Phase 4: 监听审批请求 → 转发到前端（含缓存的工具参数）
+        this.tuiManager.onApprovalRequired((approval) => {
+            // 已信任会话 → 不弹窗（TUI 会发 approval.required 但瞬间自动通过）
+            if (this.tuiManager.autoApprove) {
+                logger.info(`[Approval] skipped popup (autoApprove=true) for ${approval.tool_name}`);
+                return;
+            }
+            // TUI 中 tool_call 的 TurnItem id (item_xxx) ≠ engine call id (call_xxx)
+            // 通过工具名匹配缓存的参数（同一 turn 内只有一个待审批工具）
+            let cached: { toolName: string; args: Record<string, unknown> } | undefined;
+            for (const [, val] of this._toolCache) {
+                if (val.toolName === approval.tool_name) {
+                    cached = val;
+                    break;
+                }
+            }
+            const args = cached?.args || {};
+            const meta = ChatViewProvider.TOOL_META[approval.tool_name] || { type: approval.tool_name, impact: '未知' };
+            const argSummary = Object.keys(args).length > 0
+                ? Object.entries(args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join('\n')
+                : '';
+            this.postMessage({
+                type: 'tuiApprovalRequired',
+                approvalId: approval.id,
+                toolName: approval.tool_name,
+                toolType: meta.type,
+                impact: meta.impact,
+                description: approval.description,
+                params: argSummary,
+            });
         });
     }
 
@@ -137,9 +206,86 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             case 'ready':
                 this.postMessage({ type: 'tuiConnected', sessionId: `http://127.0.0.1:${this.tuiManager.port}` });
                 break;
+            // Phase 4: 审批决策 → 发送到 TUI
+            case 'approvalDecision': {
+                const { approvalId, decision, remember } = msg;
+                logger.info(`[Approval] user decision: ${decision} remember=${remember} for ${approvalId}`);
+                await this.tuiManager.decideApproval(approvalId, decision, remember);
+                // 不报错：审批可能已被 TUI 自动处理（超时），用户已关闭弹窗无需二次提示
+                break;
+            }
+            // Phase 4: Diff 预览 — 打开 VS Code diff editor
+            case 'viewDiff': {
+                await this.openDiffEditor(msg.filePath, msg.oldContent, msg.newContent);
+                break;
+            }
         }
     }
 
+    /** Phase 4: 打开 VS Code diff editor 展示文件变更 */
+    private async openDiffEditor(filePath: string, oldContent?: string, newContent?: string): Promise<void> {
+        try {
+            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+            const absPath = path.resolve(wsRoot, filePath);
+
+            // 新内容：读当前文件（或传入的 newContent）
+            let newUri: vscode.Uri;
+            const currentContent = fs.existsSync(absPath)
+                ? fs.readFileSync(absPath, 'utf-8')
+                : (newContent || '');
+            const tmpDir = path.join(os.tmpdir(), 'celest-diffs');
+            fs.mkdirSync(tmpDir, { recursive: true });
+            const newTmpPath = path.join(tmpDir, `${path.basename(filePath)}.new`);
+            fs.writeFileSync(newTmpPath, (newContent !== undefined ? newContent : currentContent), 'utf-8');
+            newUri = vscode.Uri.file(newTmpPath);
+
+            // 旧内容
+            let oldUri: vscode.Uri;
+            if (oldContent !== undefined) {
+                const oldTmpPath = path.join(tmpDir, `${path.basename(filePath)}.old`);
+                fs.writeFileSync(oldTmpPath, oldContent, 'utf-8');
+                oldUri = vscode.Uri.file(oldTmpPath);
+            } else {
+                // 尝试 git show HEAD
+                const safePath = filePath.replace(/\\/g, '/');
+                let gitOld: string | null = null;
+                try {
+                    gitOld = cp.execFileSync(
+                        'git', ['show', `HEAD:${safePath}`],
+                        { cwd: wsRoot, encoding: 'utf-8', timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
+                    ).toString();
+                } catch {
+                    // git show 失败 → 检查是否 git 仓库中有此文件
+                    try {
+                        const gitDiff = cp.execFileSync(
+                            'git', ['diff', 'HEAD', '--', safePath],
+                            { cwd: wsRoot, encoding: 'utf-8', timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
+                        ).toString();
+                        if (gitDiff.trim()) {
+                            // 文件在 HEAD 中不存在（新文件）→ 旧侧显示空
+                            logger.info(`[Diff] ${filePath} not in HEAD, showing as new file`);
+                        }
+                    } catch {
+                        logger.warn(`[Diff] git not available for ${filePath}`);
+                    }
+                    // 任何 git 失败 → 旧侧显示空（至少用户能看到差异）
+                    const emptyTmpPath = path.join(tmpDir, `${path.basename(filePath)}.empty`);
+                    fs.writeFileSync(emptyTmpPath, '', 'utf-8');
+                    oldUri = vscode.Uri.file(emptyTmpPath);
+                }
+                if (gitOld !== null) {
+                    const oldTmpPath = path.join(tmpDir, `${path.basename(filePath)}.old`);
+                    fs.writeFileSync(oldTmpPath, gitOld, 'utf-8');
+                    oldUri = vscode.Uri.file(oldTmpPath);
+                }
+            }
+
+            const title = `${path.basename(filePath)} (Old ↔ New)`;
+            await vscode.commands.executeCommand('vscode.diff', oldUri!, newUri, title);
+        } catch (err: any) {
+            logger.error('[Diff] failed to open diff editor:', err.message);
+        }
+    }
     /** 保存粘贴的图片到临时目录，返回路径 */
     private async savePastedImage(fileName: string, base64Data: string): Promise<string> {
         const tmpDir = path.join(os.tmpdir(), 'celest-images');
@@ -147,7 +293,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const filePath = path.join(tmpDir, fileName);
         const buffer = Buffer.from(base64Data, 'base64');
         fs.writeFileSync(filePath, buffer);
-        // 返回相对工作区的路径（如果可能），否则返回绝对路径
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
         return wsRoot ? path.relative(wsRoot, filePath) : filePath;
     }

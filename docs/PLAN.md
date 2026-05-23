@@ -105,14 +105,29 @@
 - `src/tuiProcessManager.ts` — 添加 listThreads() HTTP API
 - `src/sessionsTreeProvider.ts` — 接入真实 thread 数据源码
 
-## Phase 4: 审批 + 执行 ⏳ (未开始)
+## Phase 4: 审批 + 执行 🚧 (核心完成)
 
 **目标:** 工具执行的用户确认流程
 
-- [ ] 审批弹窗（ExecApprovalRequest → VS Code QuickPick / Modal）
-- [ ] Shell 输出实时流（exec_command_output_delta）
-- [ ] Patch 应用展示 + VS Code Diff Editor
-- [ ] 批准/拒绝/会话级批准 三种决策
+### 4.1 审批事件处理 ✅ (2026-05-23)
+- [x] `tuiProcessManager.ts` — `auto_approve` 改为可配置（默认 `false`）
+- [x] SSE `approval.required` 事件处理 → `onApprovalRequired` 发射
+- [x] `decideApproval(approvalId, decision, remember)` → `POST /v1/approvals/{id}`
+- [x] `approval.decided` / `approval.timeout` 事件处理
+
+### 4.2 审批 UI ✅ (2026-05-23)
+- [x] `ApprovalPopup.vue` — 工具名 + 描述 + 300 秒倒计时
+- [x] 三种决策按钮：Allow / Allow (Session) / Deny
+- [x] 决策后禁用按钮 + 超时自动 Deny
+
+### 4.3 消息路由 ✅ (2026-05-23)
+- [x] `chatViewProvider.ts` — `tuiApprovalRequired` / `tuiApprovalDecided` / `tuiApprovalTimeout` 消息
+- [x] WebView `approvalDecision` 消息 → TUI API
+- [x] `App.vue` — 审批状态管理 + 弹窗集成
+
+### 4.4 待完成
+- [ ] Shell 输出实时流（`item.delta` for `tool_call` 已有基础，需验证 exec_shell）
+- [ ] Patch 应用展示 + VS Code Diff Editor (Phase 4.x 或 Phase 6)
 
 ## Phase 5: 配置 + 模型 ⏳ (未开始)
 
@@ -123,6 +138,7 @@
 - [ ] 模型列表 → 下拉选择器
 - [ ] 模型切换（RPC: app/config/set）
 - [ ] 二进制自动下载（首次使用时从 GitHub Release 下载）
+- [ ] **i18n 国际化**：`celest.locale` 配置项 (`"zh-CN"` / `"en"`) → 控制 UI 文案（按钮、标签、提示），工具描述保持 TUI 端原样透传
 
 ## Phase 6: 打磨 + 发布 ⏳ (未开始)
 
@@ -134,8 +150,8 @@
 
 ---
 
-**当前进度:** Phase 3 完成，待进入 Phase 4  
-**最后更新:** 2026-05-23 (commit `Phase3`)
+**当前进度:** Phase 4 核心完成（审批弹窗 + 决策路由），待 Shell 输出流 + Diff Editor  
+**最后更新:** 2026-05-23 (Phase 4 开发)
 
 ---
 

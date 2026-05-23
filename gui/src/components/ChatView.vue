@@ -45,6 +45,9 @@
                                 <div class="result-label">Result:</div>
                                 <pre>{{ formatResult(part.result) }}</pre>
                             </div>
+                            <div v-if="isFileModifyTool(part.toolName) && part.status === 'success'" class="tool-call-actions">
+                                <button class="view-diff-btn" @click.stop="viewDiff(part)">📄 View Diff</button>
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -65,6 +68,11 @@
 import { ref, nextTick, watch, onMounted } from 'vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
+
+// Phase 4: viewDiff 通过 emit 传给父组件（App.vue），避免重复 acquireVsCodeApi
+const emit = defineEmits<{
+    viewDiff: [filePath: string, oldContent?: string, newContent?: string];
+}>();
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -171,16 +179,21 @@ function addToolCall(toolName: string, args?: Record<string, unknown>, callId?: 
     scrollToBottom();
 }
 
-/** 更新工具调用的结果 */
-function updateToolResult(callId: string, result: unknown, status: 'success' | 'error') {
+/** Phase 4: 更新工具调用结果，pending 状态追加而非覆盖（Shell 实时输出流） */
+function updateToolResult(callId: string, result: unknown, status: 'pending' | 'success' | 'error') {
     const msg = currentAssistant();
     if (!msg?.parts) return;
     // 倒序查找匹配的 tool_call
     for (let i = msg.parts.length - 1; i >= 0; i--) {
         const part = msg.parts[i];
         if (part.type === 'tool_call' && part.callId === callId) {
-            part.result = result;
-            part.status = status;
+            if (status === 'pending' && typeof result === 'string' && part.result) {
+                // 流式追加 Shell 输出
+                part.result = String(part.result) + result;
+            } else {
+                part.result = result;
+            }
+            part.status = status as 'pending' | 'success' | 'error';
             scrollToBottom();
             return;
         }
@@ -269,6 +282,39 @@ function toolResultPreview(result: unknown): string {
     const s = typeof result === 'string' ? result : JSON.stringify(result);
     const oneLine = s.replace(/\n/g, ' ').trim();
     return oneLine.length > 60 ? oneLine.slice(0, 60) + '…' : oneLine;
+}
+
+/** Phase 4: 文件修改类工具判断 */
+function isFileModifyTool(toolName?: string): boolean {
+    if (!toolName) return false;
+    const modifyTools = ['write_file', 'edit_file', 'apply_patch', 'write_to_file', 'replace_in_file'];
+    return modifyTools.includes(toolName);
+}
+
+/** Phase 4: 提取工具参数中的文件路径 */
+function extractFilePath(args?: Record<string, unknown>): string {
+    if (!args) return '';
+    return String(args.path || args.filePath || args.target || args.file || '');
+}
+
+/** Phase 4: 请求打开 VS Code diff editor */
+function viewDiff(part: any) {
+    const filePath = extractFilePath(part.arguments);
+    if (!filePath) return;
+    // write_file: content = 新文件内容
+    // edit_file: search + replace
+    let oldContent: string | undefined;
+    let newContent: string | undefined;
+    const args = part.arguments || {};
+    if (typeof args.content === 'string') {
+        // write_file → 旧侧留空（由后端 git show 处理），新侧 = content
+        newContent = args.content;
+    } else if (typeof args.search === 'string' && typeof args.replace === 'string') {
+        // edit_file → 展示 search → replace 的差异
+        oldContent = args.search;
+        newContent = args.replace;
+    }
+    emit('viewDiff', filePath, oldContent, newContent);
 }
 
 // ── Scroll ────────────────────────────────────────────────────
@@ -405,6 +451,25 @@ defineExpose({
     word-break: break-all;
     max-height: 120px;
     overflow-y: auto;
+}
+.tool-call-actions {
+    padding: 6px 10px;
+    border-top: 1px solid var(--vscode-panel-border);
+    display: flex;
+    gap: 6px;
+}
+.view-diff-btn {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 3px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+}
+.view-diff-btn:hover {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
 }
 
 /* ── Typing 指示器 (Phase 2) ─────────────────────────────── */

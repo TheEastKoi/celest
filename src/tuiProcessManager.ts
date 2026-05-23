@@ -5,13 +5,22 @@ import * as fs from 'node:fs';
 import * as net from 'node:net';
 import { logger } from './logger';
 
+/** Phase 4: 审批请求事件 */
+export interface ApprovalRequiredEvent {
+    id: string;              // approval_id（也是 tool_call item id）
+    tool_name: string;       // 工具名，如 "exec_shell", "write_file"
+    description: string;     // 审批描述，如 "Run shell command: npm install"
+    threadId: string;
+    turnId: string;
+}
+
 /** 原生运行时事件（从 /v1/threads/{id}/events SSE） */
 export interface RuntimeEvent {
-    event: string;           // "item.delta" | "item.started" | "item.completed" | ...
+    event: string;           // "item.delta" | "item.started" | "item.completed" | ... | "approval.required"
     kind?: string;           // item kind: "agent_reasoning" | "agent_message" | "tool_call" | ...
     toolName?: string;       // 工具真实名称（如 "web_search", "exec_shell"）
-    delta?: string;          // 增量文本
-    itemId?: string;
+    delta?: string;          // 增量文本 / 审批描述
+    itemId?: string;         // item id / approval_id
     threadId?: string;
     turnId?: string;
 }
@@ -33,6 +42,7 @@ export interface ThreadSummary {
  *
  * 启动 deepseek-tui serve --http，通过 Threads API 发送 prompt，
  * 监听 GET /v1/threads/{id}/events 获取完整事件（含 reasoning）。
+ * Phase 4: 支持审批流程（approval.required → decideApproval → approval.decided）
  */
 export class TuiProcessManager {
     private process?: cp.ChildProcess;
@@ -51,11 +61,18 @@ export class TuiProcessManager {
     readonly onEvent = this._onEvent.event;
     private _onStatusChange = new vscode.EventEmitter<{ status: string }>();
     readonly onStatusChange = this._onStatusChange.event;
+    // Phase 4: 审批事件
+    private _onApprovalRequired = new vscode.EventEmitter<ApprovalRequiredEvent>();
+    readonly onApprovalRequired = this._onApprovalRequired.event;
+    private _autoApprove = false;  // false = 需要用户审批，true = 自动批准
 
     constructor(private context: vscode.ExtensionContext) {}
 
     get port(): number { return this._port; }
     get connected(): boolean { return this._started && this.process?.exitCode === null; }
+    /** Phase 4: 动态设置是否自动批准（会话级批准后设为 true） */
+    set autoApprove(v: boolean) { this._autoApprove = v; }
+    get autoApprove(): boolean { return this._autoApprove; }
 
     async start(): Promise<void> {
         this._disposed = false;
@@ -74,7 +91,7 @@ export class TuiProcessManager {
         const base = `http://127.0.0.1:${this._port}/v1`;
 
         try {
-            // 1. 创建 thread
+            // 1. 创建 thread（Phase 4: auto_approve 改为可配置，默认 false）
             const tResp = await fetch(`${base}/threads`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -83,21 +100,21 @@ export class TuiProcessManager {
                     mode: 'agent',
                     workspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '.',
                     allow_shell: true,
-                    trust_mode: true,
-                    auto_approve: true,
+                    trust_mode: false,                  // Phase 4: 关闭 trust mode，由审批流程控制
+                    auto_approve: this._autoApprove,    // Phase 4: 可配置（Allow Session 后为 true）
                 }),
                 signal: controller.signal,
             });
             const thread = await tResp.json() as any;
             const threadId: string = thread.id;
             this._currentThreadId = threadId;
-            logger.info(`[Thread] created: ${threadId}`);
+            logger.info(`[Thread] created: ${threadId} auto_approve=${this._autoApprove} trust_mode=false`);
 
             // 2. 发送 prompt（不阻塞，立即返回）
             const turnPromise = fetch(`${base}/threads/${threadId}/turns`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: text }),
+                body: JSON.stringify({ prompt: text, auto_approve: this._autoApprove }),
                 signal: controller.signal,
             }).then(r => r.json() as any);
 
@@ -165,6 +182,55 @@ export class TuiProcessManager {
         this._currentAbort?.abort();
     }
 
+    /** Phase 4: 发送审批决策到 TUI */
+    async decideApproval(approvalId: string, decision: 'allow' | 'deny', remember: boolean = false): Promise<boolean> {
+        logger.info(`[Approval] decideApproval ENTRY id="${approvalId}" decision=${decision} remember=${remember}`);
+        if (!this._started) {
+            logger.warn('[Approval] TUI not connected, cannot decide');
+            return false;
+        }
+        // 用户点击"信任会话"时立即记录意图，即使当前审批已超时也保证后续生效
+        if (remember && decision === 'allow') {
+            this._autoApprove = true;
+            logger.info('[Approval] session trusted (autoApprove=true for future turns)');
+        }
+        const url = `http://127.0.0.1:${this._port}/v1/approvals/${approvalId}`;
+        try {
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ decision, remember }),
+            });
+            // 404 = 审批已过期或已被处理（超时自动 deny）
+            if (resp.status === 404) {
+                logger.warn(`[Approval] ${approvalId} already resolved (timeout or duplicate)`);
+                return false;
+            }
+            // 200 才尝试解析 JSON，非 200 尝试读 text
+            if (!resp.ok) {
+                const text = await resp.text().catch(() => '');
+                logger.warn(`[Approval] decision HTTP ${resp.status}: ${text.slice(0, 200)}`);
+                return false;
+            }
+            let result: any;
+            try {
+                result = await resp.json();
+            } catch {
+                logger.warn('[Approval] decision response was not JSON');
+                return false;
+            }
+            if (result.ok) {
+                logger.info(`[Approval] decided: ${decision} remember=${remember} for ${approvalId}`);
+                return true;
+            }
+            logger.warn(`[Approval] decision rejected by TUI: ${JSON.stringify(result)}`);
+            return false;
+        } catch (err: any) {
+            logger.error(`[Approval] decision request failed: ${err.message}`);
+            return false;
+        }
+    }
+
     dispose(): void {
         this._disposed = true;
         this._currentAbort?.abort();
@@ -219,6 +285,47 @@ export class TuiProcessManager {
         let payload: any = {};
         try { payload = JSON.parse(data); } catch { return; }
 
+        // Phase 4: 审批事件优先处理
+        if (eventName === 'approval.required') {
+            // SSE data 可能是外层包装 {"payload":{...}} 或直接内层 {...}
+            const inner = (payload.payload && typeof payload.payload === 'object' && !Array.isArray(payload.payload))
+                ? payload.payload : payload;
+            logger.info(`[SSE] approval.required tool=${inner.tool_name} desc="${String(inner.description || '').slice(0, 60)}"`);
+            const approvalEvent: ApprovalRequiredEvent = {
+                id: inner.id || inner.approval_id || '',
+                tool_name: inner.tool_name || '',
+                description: inner.description || '',
+                threadId: payload.thread_id || this._currentThreadId || '',
+                turnId: payload.turn_id || this._currentTurnId || '',
+            };
+            logger.info(`[SSE] approval.required tool=${approvalEvent.tool_name} desc="${approvalEvent.description}"`);
+            this._onApprovalRequired.fire(approvalEvent);
+            return;
+        }
+
+        if (eventName === 'approval.decided') {
+            const inner = (payload.payload && typeof payload.payload === 'object' && !Array.isArray(payload.payload))
+                ? payload.payload : payload;
+            logger.info(`[SSE] approval.decided id=${inner.approval_id} decision=${inner.decision} remember=${inner.remember}`);
+            this._onEvent.fire({
+                event: 'approvalDecided',
+                itemId: inner.approval_id,
+                delta: inner.decision,
+            });
+            return;
+        }
+
+        if (eventName === 'approval.timeout') {
+            const inner = (payload.payload && typeof payload.payload === 'object' && !Array.isArray(payload.payload))
+                ? payload.payload : payload;
+            logger.warn(`[SSE] approval.timeout id=${inner.approval_id}`);
+            this._onEvent.fire({
+                event: 'approvalTimeout',
+                itemId: inner.approval_id,
+            });
+            return;
+        }
+
         const p = payload.payload || {};
         const item = p.item || {};
         const kind: string = p.kind || item.kind || '';
@@ -255,7 +362,8 @@ export class TuiProcessManager {
                 } else if (kind === 'agent_message') {
                     this._onEvent.fire({ event: 'messageDelta', delta: d, kind });
                 } else if (kind === 'tool_call') {
-                    this._onEvent.fire({ event: 'toolProgress', delta: d, kind });
+                    // Phase 4 fix: 传递 itemId 以便前端匹配 tool card
+                    this._onEvent.fire({ event: 'toolProgress', delta: d, kind, itemId: item.id });
                 }
                 break;
             }
@@ -330,6 +438,7 @@ export class TuiProcessManager {
 
         await this.waitForReady();
         this._started = true;
+        this._onStatusChange.fire({ status: 'connected' });
         logger.info('TUI HTTP server ready, port:', this._port);
     }
 
@@ -398,5 +507,5 @@ async function findAvailablePort(preferred: number): Promise<number> {
     for (let port = preferred; port < preferred + 100; port++) {
         if (await tryPort(port)) return port;
     }
-    throw new Error('No available port in range 7878-7978');
+    throw new Error('No available port found');
 }
