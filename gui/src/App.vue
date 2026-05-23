@@ -58,8 +58,64 @@ function handleStop() { stopTypewriter(); chatRef.value?.hideTyping(); vscode?.p
 function handleClearChat() { chatRef.value?.clearMessages(); todos.value = []; plan.value = { steps: [] }; }
 function handleNewWindow() { vscode?.postMessage({ type: 'openNewWindow' }); }
 
-function parseTodoWrite(raw: unknown) { try { console.log('[Celest] parseTodoWrite type:', typeof raw, 'preview:', String(raw).slice(0, 300)); let obj: any = raw; if (typeof raw === 'string') { const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/); if (m) { try { obj = JSON.parse(m[1].trim()); } catch { /* */ } } else { try { obj = JSON.parse(raw); } catch { /* */ } } } const list = obj?.todos; if (Array.isArray(list) && list.length > 0) { todos.value = list.map((t: any) => ({ content: String(t.content || t.task || t.title || ''), status: (t.status || 'pending') as any })); console.log('[Celest] todos updated:', todos.value.length); } } catch (e) { console.log('[Celest] parseTodoWrite error:', e); } }
-function parseUpdatePlan(raw: unknown) { try { console.log('[Celest] parseUpdatePlan type:', typeof raw, 'preview:', String(raw).slice(0, 300)); let obj: any = raw; if (typeof raw === 'string') { const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/); if (m) { try { obj = JSON.parse(m[1].trim()); } catch { /* */ } } else { try { obj = JSON.parse(raw); } catch { /* */ } } } const list = obj?.plan; if (Array.isArray(list) && list.length > 0) { plan.value = { explanation: obj?.explanation, steps: list.map((s: any) => ({ step: String(s.step || s.task || ''), status: (s.status || 'pending') as any })) }; console.log('[Celest] plan updated:', plan.value.steps.length); } } catch (e) { console.log('[Celest] parseUpdatePlan error:', e); } }
+function parseTodoWrite(raw: unknown) {
+    try {
+        console.log('[Celest] parseTodoWrite type:', typeof raw, 'preview:', String(raw).slice(0, 300));
+        let obj: any = null;
+        if (typeof raw === 'string') {
+            const text = raw as string;
+            const start = text.indexOf('{');
+            if (start >= 0) {
+                try { obj = JSON.parse(text.slice(start)); } catch { /* */ }
+            }
+            if (!obj) { try { obj = JSON.parse(text); } catch { /* */ } }
+        } else {
+            obj = raw;
+        }
+        if (!obj) return;
+        let list = obj.todos;
+        if (!Array.isArray(list)) list = obj.items;
+        if (!Array.isArray(list)) list = obj.tasks;
+        if (Array.isArray(list) && list.length > 0) {
+            todos.value = list.map((t: any) => ({
+                content: String(t.content || t.task || t.title || t.name || t.description || ''),
+                status: ((t.status || t.state || 'pending') as any),
+            }));
+            console.log('[Celest] todos updated:', todos.value.length);
+        }
+    } catch (e) { console.log('[Celest] parseTodoWrite error:', e); }
+}
+
+function parseUpdatePlan(raw: unknown) {
+    try {
+        console.log('[Celest] parseUpdatePlan type:', typeof raw, 'preview:', String(raw).slice(0, 300));
+        let obj: any = null;
+        if (typeof raw === 'string') {
+            const text = raw as string;
+            const start = text.indexOf('{');
+            if (start >= 0) {
+                try { obj = JSON.parse(text.slice(start)); } catch { /* */ }
+            }
+            if (!obj) { try { obj = JSON.parse(text); } catch { /* */ } }
+        } else {
+            obj = raw;
+        }
+        if (!obj) return;
+        let list = obj.plan;
+        if (!Array.isArray(list)) list = obj.steps;
+        if (!Array.isArray(list)) list = obj.items;
+        if (Array.isArray(list) && list.length > 0) {
+            plan.value = {
+                explanation: obj.explanation || obj.description || '',
+                steps: list.map((s: any) => ({
+                    step: String(s.step || s.task || s.title || ''),
+                    status: ((s.status || s.state || 'pending') as any),
+                })),
+            };
+            console.log('[Celest] plan updated:', plan.value.steps.length);
+        }
+    } catch (e) { console.log('[Celest] parseUpdatePlan error:', e); }
+}
 
 onMounted(() => {
     window.addEventListener('message', (e) => { const msg = e.data; switch (msg.type) {
@@ -71,9 +127,9 @@ onMounted(() => {
         case 'tuiToolCall': chatRef.value?.addToolCall(msg.toolCall?.name || 'unknown', msg.toolCall?.arguments, msg.toolCall?.callId); break;
         case 'tuiToolResult': { const o = msg.toolResult?.output ?? msg.toolResult?.error; chatRef.value?.updateToolResult(msg.toolResult?.callId || '', o, msg.toolResult?.status === 'error' ? 'error' : 'success'); const tn = msg.toolResult?.toolName || '';
                     // TUI may use checklist_write (canonical) or todo_write (compat alias)
-                    if (tn === 'todo_write' || tn === 'checklist_write' || tn === 'checklist_add' || tn === 'checklist_update' || tn === 'todo_add' || tn === 'todo_update') parseTodoWrite(o);
-                    if (tn === 'update_plan') parseUpdatePlan(o);
-                    if (tn && (tn.includes('todo') || tn.includes('checklist') || tn === 'update_plan')) console.log('[Celest] toolResult toolName:', tn, 'output type:', typeof o); break; }
+                    if (tn === 'todo_write' || tn === 'checklist_write' || tn === 'checklist_add' || tn === 'checklist_update' || tn === 'todo_add' || tn === 'todo_update') { console.log('[DEBUG] calling parseTodoWrite with o=', typeof o, String(o).slice(0,100)); parseTodoWrite(o); }
+                    if (tn === 'update_plan') { console.log('[DEBUG] calling parseUpdatePlan'); parseUpdatePlan(o); }
+                    if (tn && (tn.includes('todo') || tn.includes('checklist') || tn === 'update_plan')) { console.log('[Celest] toolResult toolName:', tn, 'output type:', typeof o, 'raw:', String(o).slice(0,200)); } break; }
         case 'tuiToolProgress': chatRef.value?.updateToolResult(msg.toolResult?.callId || '', msg.toolResult?.output ?? '', 'pending'); break;
         case 'promptStarted': promptRunning.value = true; resetPromptWatchdog(); turnCount.value++; break;
         case 'promptEnded': promptRunning.value = false; if (promptWatchdog) { clearTimeout(promptWatchdog); promptWatchdog = null; } if (!typewriterTimer) chatRef.value?.hideTyping(); break;

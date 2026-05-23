@@ -1,0 +1,22 @@
+
+=== Building Vue GUI ===
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 129 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html        [39m[1m[2m  0.36 kB[22m[1m[22m[2m │ gzip:  0.25 kB[22m
+[2mdist/[22m[35massets/index.css  [39m[1m[2m 16.43 kB[22m[1m[22m[2m │ gzip:  3.06 kB[22m
+[2mdist/[22m[36massets/index.js   [39m[1m[2m238.62 kB[22m[1m[22m[2m │ gzip: 98.72 kB[22m
+[32m✓ built in 549ms[39m
+✅ GUI built
+OK GUI copied to out\gui
+
+=== Building Celest Extension ===
+✅ Extension built: 25.1 KB
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+  out\extension.js      25.1kb
+  out\extension.js.map  47.5kb
+
+⚡ Done in 4ms

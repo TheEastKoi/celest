@@ -1,0 +1,26 @@
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 3 modules transformed.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+[31mx[39m Build failed in 67ms
+[31merror during build:
+[31m[vite:vue] [vue/compiler-sfc] Did not expect a type annotation here. (100:4)
+
+E:/git_code/celest/gui/src/App.vue
+117|      } catch (e) { console.log('[Celest] parseUpdatePlan error:', e); }
+118|  }
+119|  (raw: unknown) { try { console.log('[Celest] parseUpdatePlan type:', typeof raw, 'preview:', String(raw).slice(0, 300)); let obj: any = raw; if (typeof raw === 'string') { const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/); if (m) { try { obj = JSON.parse(m[1].trim()); } catch { /* */ } } else { try { obj = JSON.parse(raw); } catch { /* */ } } } const list = obj?.plan; if (Array.isArray(list) && list.length > 0) { plan.value = { explanation: obj?.explanation, steps: list.map((s: any) => ({ step: String(s.step || s.task || ''), status: (s.status || 'pending') as any })) }; console.log('[Celest] plan updated:', plan.value.steps.length); } } catch (e) { console.log('[Celest] parseUpdatePlan error:', e); } }
+   |      ^
+120|  
+121|  onMounted(() => {[31m
+file: [36mE:/git_code/celest/gui/src/App.vue:100:4[31m
+    at constructor (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:365:19)
+    at TypeScriptParserMixin.raise (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:6616:19)
+    at E:\git_code\celest\node_modules\@babel\parser\lib\index.js:9201:14
+    at Array.forEach (<anonymous>)
+    at TypeScriptParserMixin.tsCheckForInvalidTypeCasts (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:9199:11)
+    at TypeScriptParserMixin.toReferencedList (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:9206:10)
+    at TypeScriptParserMixin.toReferencedListDeep (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:7336:10)
+    at TypeScriptParserMixin.parseParenAndDistinguishExpression (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:11714:10)
+    at TypeScriptParserMixin.parseExprAtom (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:11348:23)
+    at TypeScriptParserMixin.parseExprSubscripts (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:11098:23)[39m

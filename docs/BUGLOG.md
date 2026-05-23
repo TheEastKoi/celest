@@ -170,3 +170,16 @@
 **根因:** `initSplitWidth()` 调用时 DOM 未完成 layout，`clientWidth = 0`。  
 **修复:** `nextTick()` 包裹 + `ResizeObserver` 持续监听 + 比例改为百分比（65%/35%）。  
 **参考:** `App.vue:initSplitWidth`
+
+## Work/Plan 面板数据解析失败 — TUI 混合文本+JSON 输出
+
+**时间:** 2026-05-23 下午
+**现象:** 发送 prompt 触发 `todo_write` 后，Console 日志显示 `toolName: todo_write` 但没有 `todos updated` 日志，Work 面板为空。
+**根因:** 
+1. TUI 工具输出格式为"文字描述 + JSON"（如 `"Todo list updated (3 items)\n{\"items\": [...]}"`），`JSON.parse` 对整段文字失败
+2. JSON 根键是 `items` 而非预期的 `todos`
+**修复:** 
+1. `parseTodoWrite` / `parseUpdatePlan` — 用 `indexOf('{')` 提取纯 JSON 子串再解析
+2. 同时检查 `todos`/`items`/`tasks` 和 `plan`/`steps`/`items` 多种键名
+3. 工具名匹配扩展到 `checklist_write` 系列别名
+**参考:** `App.vue:parseTodoWrite`, `App.vue:parseUpdatePlan`

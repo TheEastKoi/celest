@@ -1,0 +1,47 @@
+
+=== Building Vue GUI ===
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 3 modules transformed.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+[31mx[39m Build failed in 67ms
+[31merror during build:
+[31m[vite:vue] [vue/compiler-sfc] Missing catch or finally clause. (42:40)
+
+E:/git_code/celest/gui/src/App.vue
+59 |  function handleNewWindow() { vscode?.postMessage({ type: 'openNewWindow' }); }
+60 |  
+61 |  function parseTodoWrite(raw: unknown) { try { console.log('[Celest] parseTodoWrite type:', typeof raw, 'preview:', String(raw).slice(0, 300)); let obj: any = raw; if (typeof raw === 'string') { const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/); if (m) { try { obj = JSON.parse(m[1].trim()); } catch { /* */ } } else { try { obj = JSON.parse(raw); } catch { /* */ } } } const list = obj?.todos; if (Array.isArray(list) && list.length > 0) { todos.value = list.map((t: any) => ({ content: String(t.content || t.task || t.title || t.name || t.description || ''), status: (t.status || t.state || 'pending') as any })); console.log('[Celest] todos updated:', todos.value.length); return; } } // TUI may return "items" instead of "todos" const items = obj?.items; if (Array.isArray(items) && items.length > 0) { todos.value = items.map((t: any) => ({ content: String(t.content || t.task || t.title || t.name || t.description || ''), status: (t.status || t.state || 'pending') as any })); console.log('[Celest] todos (from items) updated:', todos.value.length); } } catch (e) { console.log('[Celest] parseTodoWrite error:', e); } }
+   |                                          ^
+62 |  function parseUpdatePlan(raw: unknown) { try { console.log('[Celest] parseUpdatePlan type:', typeof raw, 'preview:', String(raw).slice(0, 300)); let obj: any = raw; if (typeof raw === 'string') { const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/); if (m) { try { obj = JSON.parse(m[1].trim()); } catch { /* */ } } else { try { obj = JSON.parse(raw); } catch { /* */ } } } const list = obj?.plan; if (Array.isArray(list) && list.length > 0) { plan.value = { explanation: obj?.explanation, steps: list.map((s: any) => ({ step: String(s.step || s.task || ''), status: (s.status || 'pending') as any })) }; console.log('[Celest] plan updated:', plan.value.steps.length); } } catch (e) { console.log('[Celest] parseUpdatePlan error:', e); } }
+63 |  [31m
+file: [36mE:/git_code/celest/gui/src/App.vue:42:40[31m
+    at constructor (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:365:19)
+    at TypeScriptParserMixin.raise (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:6616:19)
+    at TypeScriptParserMixin.parseTryStatement (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:13241:12)
+    at TypeScriptParserMixin.parseStatementContent (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:12821:21)
+    at TypeScriptParserMixin.parseStatementContent (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:9525:18)
+    at TypeScriptParserMixin.parseStatementLike (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:12784:17)
+    at TypeScriptParserMixin.parseStatementListItem (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:12764:17)
+    at TypeScriptParserMixin.parseBlockOrModuleBlockBody (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:13333:61)
+    at TypeScriptParserMixin.parseBlockBody (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:13326:10)
+    at TypeScriptParserMixin.parseBlock (E:\git_code\celest\node_modules\@babel\parser\lib\index.js:13314:10)[39m
+❌ GUI build failed
+Build failed: Error: Command failed: "E:\git_code\celest\node_modules\.bin\vite.cmd" build
+    at genericNodeError (node:internal/errors:985:15)
+    at wrappedFn (node:internal/errors:539:14)
+    at checkExecSyncError (node:child_process:925:11)
+    at execSync (node:child_process:997:15)
+    at runViteBuild (file:///E:/git_code/celest/build.mjs:30:9)
+    at main (file:///E:/git_code/celest/build.mjs:63:5)
+    at file:///E:/git_code/celest/build.mjs:71:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  status: 1,
+  signal: null,
+  output: [ null, null, null ],
+  pid: 54668,
+  stdout: null,
+  stderr: null
+}

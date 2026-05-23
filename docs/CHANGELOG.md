@@ -1,3 +1,26 @@
+## 2026-05-23 (下午)
+
+### Phase 3.2 — Work/Plan 面板数据解析修复
+
+**问题根因:**
+- TUI 的 `todo_write` / `update_plan` 工具输出是"文字描述 + JSON"混合格式
+- JSON 根键是 `items` 而非 `todos`/`plan`
+- 之前的 `JSON.parse` 对整段文字失败，静默返回无数据
+
+**修复:**
+- `parseTodoWrite()` / `parseUpdatePlan()` — 用 `indexOf('{')` 提取纯 JSON 再解析
+- 同时匹配 `todos`/`items`/`tasks` 和 `plan`/`steps`/`items` 多种键名
+- 工具名匹配扩展到 `checklist_write`/`checklist_add`/`checklist_update` 等别名
+- 全链路 debug 日志（`[DEBUG] calling parseXxx` → `[Celest] xxx updated: N`）
+
+**验证:**
+- Work 面板 ✅ 3 个任务正常显示（状态排序 + 图标 + 删除线）
+- Plan 面板 ✅ 3 步计划 + 解释文字正常显示
+
+**构建:** 25.1 KB extension, vitest 11/11 passed
+
+---
+
 # Celest — 开发日志
 
 > 按 git 提交时间线记录。括号内为对应 commit hash。
