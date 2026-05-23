@@ -92,27 +92,57 @@ code --install-extension celest-*.vsix
 
 ## 🏗️ 架构
 
+```mermaid
+flowchart TB
+    subgraph VSCode["VS Code"]
+        subgraph WebView["Vue 3 WebView GUI"]
+            App["App.vue<br/>根布局 · 分栏 · 审批"]
+            Chat["ChatView<br/>消息列表 · 打字机 · 工具卡片"]
+            Input["InputBox<br/>输入框 · @提及 · /命令"]
+            Work["WorkPanel<br/>任务清单"]
+            Plan["PlanPanel<br/>计划进度"]
+            Help["HelpPanel<br/>帮助"]
+            Approval["ApprovalPopup<br/>审批弹窗"]
+            App --> Chat
+            App --> Input
+            App --> Work
+            App --> Plan
+            App --> Help
+            App --> Approval
+        end
+
+        subgraph ExtHost["Extension Host (Node.js)"]
+            Provider["ChatViewProvider<br/>消息路由 · Diff Editor"]
+            TUI["TuiProcessManager<br/>进程管理 · HTTP/SSE"]
+            Sessions["SessionsTreeProvider<br/>会话列表"]
+            WebView <-.->|postMessage| Provider
+            Provider --> TUI
+            Provider --> Sessions
+        end
+    end
+
+    subgraph TUIProcess["deepseek-tui (Rust)"]
+        HTTP["HTTP API<br/>threads · turns · approvals"]
+        Engine["Agent Engine<br/>推理循环 · 工具执行"]
+        ToolSys["Tool System<br/>read/write/exec/search"]
+        HTTP --> Engine
+        Engine --> ToolSys
+    end
+
+    TUI <-..->|"HTTP/SSE<br/>localhost:7878"| HTTP
+
+    style VSCode fill:#1e1e2e,stroke:#45475a,color:#cdd6f4
+    style WebView fill:#313244,stroke:#45475a,color:#cdd6f4
+    style ExtHost fill:#313244,stroke:#45475a,color:#cdd6f4
+    style TUIProcess fill:#1e1e2e,stroke:#f38ba8,color:#cdd6f4
 ```
-┌─────────────────────────────────────────────────┐
-│  VS Code Extension (Celest)                      │
-│                                                   │
-│  ┌──────────────────┐  ┌──────────────────────┐  │
-│  │ Vue 3 WebView GUI│  │ Extension Host        │  │
-│  │ • ChatView       │  │ • chatViewProvider    │  │
-│  │ • WorkPanel      │  │ • tuiProcessManager   │  │
-│  │ • PlanPanel      │  │ • sessionsTreeProvider│  │
-│  │ • HelpPanel      │  │ • HTTP/SSE 通信       │  │
-│  │ • @/Popup        │  └──────────┬───────────┘  │
-│  └──────────────────┘             │ TCP           │
-│                                   │ localhost     │
-│                        ┌──────────▼───────────┐   │
-│                        │ deepseek-tui (Rust)   │   │
-│                        │ serve --http --insecure│  │
-│                        │ • Agent 循环          │   │
-│                        │ • 工具系统            │   │
-│                        └──────────────────────┘   │
-└─────────────────────────────────────────────────┘
-```
+
+**数据流：**
+1. 用户在 `InputBox` 输入 → `postMessage` 到 `ChatViewProvider`
+2. `ChatViewProvider` 调用 `TuiProcessManager.sendPrompt()` → `POST /v1/threads` 创建会话
+3. `TuiProcessManager` 监听 `GET /v1/threads/{id}/events` SSE 事件流
+4. SSE 事件（thinking delta / tool call / approval）经 `ChatViewProvider` 路由到 WebView
+5. 审批事件触发 `ApprovalPopup`，用户决策后 `POST /v1/approvals/{id}`
 
 ## 📁 项目结构
 
