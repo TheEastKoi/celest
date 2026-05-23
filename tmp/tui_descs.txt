@@ -1,0 +1,231 @@
+Anchor|||Pin a fact that survives compaction (auto-injected into context)
+Attach|||Attach image/video media; use @path for text files or directories
+Cache|||Show DeepSeek prefix-cache hit/miss stats for the last N turns
+ChangeTranslationQueued|||English release notes are shown below. A translated version will be requested next; if the provider is unavailable, this English text is the fallback.
+ChangeTranslationUnavailable|||English release notes are shown below. Translation is unavailable because the current session has no API key or is offline.
+ChangePreviousVersion|||Previous version: {version} — run `/change {version}` to view it
+Compact|||Trigger context compaction to free up space (legacy; v0.6.6 prefers cycle restart)
+Agent|||Open a persistent sub-agent session: /agent [0-3] <task>
+Provider|||Switch or view the active LLM backend (deepseek | nvidia-nim | ollama)
+Restore|||Roll back the workspace to a prior pre/post-turn snapshot. With no arg, lists recent snapshots.
+Skill|||Activate a skill, or install/update/uninstall/trust a community skill
+Skills|||List local skills (filter by `/skills <prefix>`; --remote browses the curated registry)
+Stash|||Park or restore a composer draft (Ctrl+S to push, /stash list/pop)
+Swarm|||Run a multi-agent fanout turn (sequential | mixture | distill | deliberate)
+Translate|||Toggle output translation to the current system language on/off
+TranslateOn|||Output translation enabled: model responses will be shown in your system language
+Trust|||Manage workspace trust and per-path allowlist (`/trust add <path>`, `/trust list`, `/trust on|off`)
+CacheAdvice|||Hit/miss ratios over ~70% after the third turn indicate a stable cache prefix; \n\
+             lower than that on long sessions suggests prefix churn worth investigating (#263).
+CacheFootnote|||* miss inferred from input − hit when the provider did not report it explicitly.\n
+CacheHeader|||Cache telemetry — last {count} of {total} turn(s) (model: {model})\n
+CacheNoData|||Cache history: no turns recorded yet.\n\n\
+             DeepSeek surfaces `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` \
+             on every API turn that the model supports it (V4 family). Run a turn \
+             and try /cache again.
+CacheTotals|||Σ in: {sum_in}   Σ hit: {sum_hit}   Σ miss: {sum_miss}   avg hit ratio: {avg}\n
+CostReport|||Session Cost:\n\
+             ─────────────────────────────\n\
+             Approx total spent: {cost}\n\n\
+             Cost estimates are approximate and use provider usage telemetry when available.\n\n\
+             DeepSeek API Pricing:\n\
+             ─────────────────────────────\n\
+             Pricing details are not configured in this CLI.
+TokensReport|||Token Usage:\n\
+             ─────────────────────────────\n\
+             Active context:        {active}\n\
+             Last API input:        {input} (turn telemetry; may count repeated prefix across tool rounds)\n\
+             Last API output:       {output}\n\
+             Cache hit/miss:        {cache} (telemetry/cost only)\n\
+             Cumulative tokens:     {total} (session usage telemetry)\n\
+             Approx session cost:   {cost}\n\
+             API messages:          {api_messages}\n\
+             Chat messages:         {chat_messages}\n\
+             Model:                 {model}
+Anchor|||コンパクション後も保持される重要な事実をピン留め（コンテキストに自動注入）
+Attach|||画像・動画メディアを添付（テキストファイルやディレクトリは @path）
+Cache|||直近 N ターンの DeepSeek プレフィックスキャッシュのヒット/ミス統計を表示
+ChangeTranslationQueued|||英語のリリースノートを以下に表示します。次に翻訳を依頼します。プロバイダーを利用できない場合は、この英語版がフォールバックです。
+ChangeTranslationUnavailable|||英語のリリースノートを以下に表示します。現在のセッションに API キーがないかオフラインのため、翻訳は利用できません。
+ChangePreviousVersion|||前のバージョン: {version} — `/change {version}` で表示
+Compact|||コンテキスト圧縮で容量を確保（旧式：v0.6.6 以降はサイクル再起動を推奨）
+Cycles|||セッション内のチェックポイント再起動サイクルの引き継ぎを一覧表示
+Hooks|||設定済みのライフサイクルフックを一覧表示（読み取り専用）
+Agent|||永続サブエージェントセッションを開く: /agent [0-3] <task>
+Theme|||テーマを切り替え（ダーク/ライト/グレースケール/システム）
+Provider|||現在の LLM バックエンドを切り替え・確認（deepseek | nvidia-nim | ollama）
+Recall|||過去のサイクルアーカイブを検索（メッセージ本文への BM25 検索）
+Restore|||ワークスペースを以前のターン前/後スナップショットへロールバック。引数なしで最近のスナップショットを一覧表示。
+Skill|||スキルを有効化、またはコミュニティスキルをインストール／更新／アンインストール／信頼
+Skills|||ローカルスキルを一覧表示（`/skills <prefix>` で絞り込み、--remote で精選レジストリを参照）
+Stash|||コンポーザーの下書きを退避／復元（Ctrl+S で退避、/stash list|pop）
+Swarm|||マルチエージェントのファンアウトターンを実行（sequential | mixture | distill | deliberate）
+TranslateOn|||出力翻訳が有効になりました：モデル応答は現在のシステム言語で表示されます
+Trust|||ワークスペースの信頼設定とパス別許可リストを管理（`/trust add <path>`、`/trust list`、`/trust on|off`）
+CacheAdvice|||3 ターン目以降にヒット率が ~70% 以上で安定していれば、プレフィックスキャッシュは健全。\n\
+             長いセッションでこれを下回る場合はプレフィックスのドリフトの可能性あり (#263)。
+CacheFootnote|||* プロバイダがミスを単独で報告しない場合は「入力 − ヒット」から推定。\n
+CacheHeader|||キャッシュテレメトリ — 直近 {count} / {total} ターン（モデル: {model}）\n
+CacheNoData|||キャッシュ履歴: まだターンを記録していません。\n\n\
+             DeepSeek は対応モデル (V4 系) の各 API ターンで `prompt_cache_hit_tokens` / \
+             `prompt_cache_miss_tokens` を返します。1 ターン実行してから /cache を再度試してください。
+CacheTotals|||Σ 入力: {sum_in}   Σ ヒット: {sum_hit}   Σ ミス: {sum_miss}   平均ヒット率: {avg}\n
+CostReport|||セッション費用:\n\
+             ─────────────────────────────\n\
+             累計概算: {cost}\n\n\
+             費用は概算値。プロバイダの使用量テレメトリがあれば優先して使用します。\n\n\
+             DeepSeek API 料金:\n\
+             ─────────────────────────────\n\
+             本 CLI には詳細な料金表は組み込まれていません。
+TokensReport|||トークン使用量:\n\
+             ─────────────────────────────\n\
+             アクティブコンテキスト: {active}\n\
+             直近の API 入力:        {input}（ターン単位のテレメトリ。複数回のツール往復で同じプレフィックスが重複してカウントされる場合あり）\n\
+             直近の API 出力:        {output}\n\
+             キャッシュヒット/ミス:  {cache}（テレメトリ/コスト用のみ）\n\
+             累計トークン:           {total}（セッション使用量テレメトリ）\n\
+             セッション費用概算:     {cost}\n\
+             API メッセージ:         {api_messages}\n\
+             チャットメッセージ:     {chat_messages}\n\
+             モデル:                 {model}
+ChangeTranslationQueued|||下面显示英文发布说明。接下来会请求模型翻译；如果当前提供商不可用，这段英文内容就是备用结果。
+ChangeTranslationUnavailable|||下面显示英文发布说明。当前会话没有 API Key 或处于离线状态，无法翻译。
+ChangePreviousVersion|||上一个版本: {version} —— 输入 `/change {version}` 查看
+Compact|||触发上下文压缩以释放空间（旧版命令；v0.6.6 起建议改用循环重启）
+Provider|||切换或查看当前 LLM 后端（deepseek | nvidia-nim | ollama）
+Restore|||将工作区回滚到此前的轮次前/后快照。不带参数时列出最近的快照。
+Skills|||列出本地技能（用 `/skills <prefix>` 按名称前缀过滤，--remote 浏览精选注册表）
+Swarm|||运行多代理扇出轮次（sequential | mixture | distill | deliberate）
+Trust|||管理工作区信任与按路径的白名单（`/trust add <path>`、`/trust list`、`/trust on|off`）
+CacheAdvice|||第 3 轮起命中率稳定在 ~70% 以上即表示前缀缓存稳定；\n\
+             长会话中明显偏低则意味着前缀有抖动，值得排查（#263）。
+CacheNoData|||缓存历史：尚未记录任何轮次。\n\n\
+             DeepSeek 在受支持的模型（V4 系列）每个 API 轮次都会返回 `prompt_cache_hit_tokens` / \
+             `prompt_cache_miss_tokens`。请先运行一个轮次再试 /cache。
+CacheTotals|||Σ 输入：{sum_in}   Σ 命中：{sum_hit}   Σ 未命中：{sum_miss}   平均命中率：{avg}\n
+CostReport|||会话费用：\n\
+             ─────────────────────────────\n\
+             预估累计消耗：{cost}\n\n\
+             费用为估算值；如有提供方用量遥测会优先使用。\n\n\
+             DeepSeek API 计费：\n\
+             ─────────────────────────────\n\
+             此 CLI 中未配置详细计费规则。
+TokensReport|||令牌用量：\n\
+             ─────────────────────────────\n\
+             活动上下文：       {active}\n\
+             上次 API 输入：    {input}（来自轮次遥测；多轮工具调用中相同前缀可能被重复计入）\n\
+             上次 API 输出：    {output}\n\
+             缓存命中/未命中：  {cache}（仅用于遥测/计费）\n\
+             累计令牌：         {total}（会话用量遥测）\n\
+             预估会话费用：     {cost}\n\
+             API 消息数：       {api_messages}\n\
+             聊天消息数：       {chat_messages}\n\
+             模型：             {model}
+Anchor|||Fixar um fato que sobrevive à compactação (injetado automaticamente no contexto)
+Attach|||Anexar imagem ou vídeo; use @path para arquivos de texto ou diretórios
+Cache|||Exibir estatísticas de hit/miss do cache de prefixo DeepSeek nas últimas N rodadas
+ChangeTranslationQueued|||As notas de versao em ingles aparecem abaixo. Uma versao traduzida sera solicitada em seguida; se o provedor estiver indisponivel, este texto em ingles sera o fallback.
+ChangeTranslationUnavailable|||As notas de versao em ingles aparecem abaixo. A traducao esta indisponivel porque a sessao atual nao tem chave de API ou esta offline.
+ChangePreviousVersion|||Versão anterior: {version} — execute `/change {version}` para visualizar
+Compact|||Compactar o contexto para liberar espaço (legado; a v0.6.6 prefere o reinício de ciclo)
+Cycle|||Exibir o briefing de continuidade de um ciclo específico
+Cycles|||Listar as transferências dos ciclos checkpoint-restart desta sessão
+Hooks|||Listar hooks de ciclo de vida configurados (somente leitura)
+Agent|||Abrir uma sessão persistente de sub-agente: /agent [0-3] <task>
+Goal|||Definir uma meta de sessão com orçamento de tokens opcional
+Memory|||Inspecionar ou gerenciar o arquivo persistente de memória do usuário
+Provider|||Trocar ou exibir o backend LLM ativo (deepseek | nvidia-nim | ollama)
+Recall|||Buscar arquivos de ciclos anteriores (BM25 sobre o texto das mensagens)
+Restore|||Reverter o workspace a um snapshot pré/pós-turno anterior. Sem argumento, lista os snapshots recentes.
+Review|||Executar uma revisão de código estruturada em um arquivo, diff ou PR
+Rlm|||Abrir um contexto RLM persistente: /rlm [0-3] <file_or_text>
+Skill|||Ativar uma skill, ou instalar/atualizar/desinstalar/confiar em uma skill da comunidade
+Skills|||Listar skills locais (filtre com `/skills <prefixo>`; --remote navega pelo registro curado)
+Stash|||Estacionar ou restaurar rascunho do compositor (Ctrl+S estaciona, /stash list|pop)
+Swarm|||Executar turno fanout multi-agente (sequential | mixture | distill | deliberate)
+Translate|||Alternar tradução de saída para o idioma atual do sistema
+TranslateOff|||Tradução de saída desativada (saída original do modelo exibida)
+TranslateOn|||Tradução de saída ativada: as respostas serão exibidas no idioma do sistema
+Trust|||Gerenciar a confiança do workspace e a allowlist por caminho (`/trust add <path>`, `/trust list`, `/trust on|off`)
+CacheAdvice|||Taxas de hit/miss acima de ~70% a partir do terceiro turno indicam um prefixo de cache estável;\n\
+             valores menores em sessões longas sugerem instabilidade no prefixo, vale investigar (#263).
+CacheFootnote|||* miss inferido a partir de entrada − hit quando o provedor não o reporta separadamente.\n
+CacheHeader|||Telemetria do cache — últimos {count} de {total} turno(s) (modelo: {model})\n
+CacheNoData|||Histórico do cache: nenhum turno registrado ainda.\n\n\
+             O DeepSeek expõe `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` em cada turno \
+             da API onde o modelo suporta (família V4). Execute um turno e tente /cache de novo.
+CacheTotals|||Σ entrada: {sum_in}   Σ hit: {sum_hit}   Σ miss: {sum_miss}   taxa média de hit: {avg}\n
+CostReport|||Custo da sessão:\n\
+             ─────────────────────────────\n\
+             Total aproximado: {cost}\n\n\
+             Estimativas de custo são aproximadas e usam a telemetria de uso do provedor quando disponível.\n\n\
+             Preços da API DeepSeek:\n\
+             ─────────────────────────────\n\
+             Os detalhes de preço não estão configurados nesta CLI.
+TokensReport|||Uso de tokens:\n\
+             ─────────────────────────────\n\
+             Contexto ativo:           {active}\n\
+             Última entrada da API:    {input} (telemetria por turno; pode contar o mesmo prefixo várias vezes em rodadas com ferramentas)\n\
+             Última saída da API:      {output}\n\
+             Hit/miss do cache:        {cache} (apenas para telemetria/custo)\n\
+             Tokens acumulados:        {total} (telemetria de uso da sessão)\n\
+             Custo aproximado:         {cost}\n\
+             Mensagens da API:         {api_messages}\n\
+             Mensagens do chat:        {chat_messages}\n\
+             Modelo:                   {model}
+Anchor|||Fijar un dato que sobrevive a la compactación (inyectado automáticamente en el contexto)
+Attach|||Adjuntar imagen o video; usa @ruta para archivos de texto o directorios
+Cache|||Mostrar estadísticas de hit/miss del caché de prefijo DeepSeek en las últimas N rondas
+ChangeTranslationQueued|||Las notas de la versión en inglés se muestran abajo. Se solicitará una versión traducida a continuación; si el proveedor no está disponible, este texto en inglés será el fallback.
+ChangeTranslationUnavailable|||Las notas de la versión en inglés se muestran abajo. La traducción no está disponible porque la sesión actual no tiene clave de API o está offline.
+ChangePreviousVersion|||Versión anterior: {version} — ejecuta `/change {version}` para verla
+Compact|||Compactar el contexto para liberar espacio (heredado; v0.6.6 prefiere reinicio de ciclo)
+Cycle|||Mostrar el resumen de continuidad de un ciclo específico
+Cycles|||Listar las transferencias de checkpoint-restart de esta sesión
+Home|||Mostrar el panel inicial con estadísticas y acciones rápidas
+Hooks|||Listar hooks de ciclo de vida configurados (solo lectura)
+Agent|||Abrir una sesión persistente de sub-agente: /agent [0-3] <tarea>
+Goal|||Definir una meta de sesión con presupuesto de tokens opcional
+Jobs|||Inspeccionar y controlar trabajos de shell en segundo plano
+Memory|||Inspeccionar o gestionar el archivo persistente de memoria del usuario
+Provider|||Cambiar o mostrar el backend LLM activo (deepseek | nvidia-nim | ollama)
+Recall|||Buscar archivos de ciclos anteriores (BM25 sobre el texto de los mensajes)
+Restore|||Revertir el workspace a un snapshot pre/post-turno anterior. Sin argumento, lista los snapshots recientes.
+Review|||Ejecutar una revisión de código estructurada en un archivo, diff o PR
+Rlm|||Turno del Recursive Language Model (RLM) — guarda el prompt en un REPL Python y deja que el modelo escriba el código que lo procesa; usa `llm_query()` / `sub_rlm()` para llamadas a sub-LLMs.
+Skill|||Activar una skill, o instalar/actualizar/desinstalar/confiar en una skill de la comunidad
+Skills|||Listar skills locales (filtra con `/skills <prefijo>`; --remote navega el registro curado)
+Stash|||Estacionar o restaurar borrador del compositor (Ctrl+S estaciona, /stash list|pop)
+Statusline|||Configurar qué elementos aparecen en el pie de página
+Swarm|||Ejecutar turno fanout multi-agente (sequential | mixture | distill | deliberate)
+Translate|||Activar o desactivar la traducción de salida al idioma actual del sistema
+TranslateOff|||Traducción de salida desactivada (se muestra la salida original del modelo)
+TranslateOn|||Traducción de salida activada: las respuestas del modelo se mostrarán en el idioma del sistema
+Trust|||Gestionar la confianza del workspace y la lista de paths permitidos (`/trust add <ruta>`, `/trust list`, `/trust on|off`)
+Verbose|||Alternar pensamiento en vivo completo en la transcripción
+CacheAdvice|||Tasas de hit/miss arriba del ~70% a partir del tercer turno indican un prefijo de caché estable;\n\
+             valores menores en sesiones largas sugieren inestabilidad en el prefijo, vale investigar (#263).
+CacheFootnote|||* miss inferido a partir de entrada − hit cuando el proveedor no lo reporta por separado.\n
+CacheHeader|||Telemetría del caché — últimos {count} de {total} turno(s) (modelo: {model})\n
+CacheNoData|||Historial del caché: ningún turno registrado todavía.\n\n\
+             DeepSeek expone `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` en cada turno \
+             de la API donde el modelo lo soporta (familia V4). Ejecuta un turno y prueba /cache de nuevo.
+CacheTotals|||Σ entrada: {sum_in}   Σ hit: {sum_hit}   Σ miss: {sum_miss}   tasa promedio de hit: {avg}\n
+CostReport|||Costo de la sesión:\n\
+             ─────────────────────────────\n\
+             Total aproximado: {cost}\n\n\
+             Las estimaciones de costo son aproximadas y usan la telemetría de uso del proveedor cuando está disponible.\n\n\
+             Precios de la API DeepSeek:\n\
+             ─────────────────────────────\n\
+             Los detalles de precio no están configurados en esta CLI.
+TokensReport|||Uso de tokens:\n\
+             ─────────────────────────────\n\
+             Contexto activo:           {active}\n\
+             Última entrada de API:     {input} (telemetría por turno; puede contar el mismo prefijo varias veces en rondas con herramientas)\n\
+             Última salida de API:      {output}\n\
+             Hit/miss del caché:        {cache} (solo para telemetría/costo)\n\
+             Tokens acumulados:         {total} (telemetría de uso de la sesión)\n\
+             Costo aproximado:          {cost}\n\
+             Mensajes de API:           {api_messages}\n\
+             Mensajes del chat:         {chat_messages}\n\
+             Modelo:                    {model}

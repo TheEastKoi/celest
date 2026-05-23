@@ -1,3 +1,32 @@
+## 2026-05-23 (晚间)
+
+### Help 面板 TUI 完整对齐
+
+- `helpData.ts` 完全重写 — 64 斜杠命令 + 43 快捷键，全部来自 TUI 0.8.40 COMMANDS + KEYBINDINGS
+- 命令描述直接翻译自 TUI `localization.rs` 的英文原文
+- 每个命令携带全部 TUI 别名（拼音+中文），如 `/help` / `/?` / `/bangzhu` / `/帮助`
+- 8 个命令分类 + 7 个快捷键分类，每个分类独立色标
+- `/` 弹窗标题修正为 `Commands (64 of 64)`
+
+### Phase 3 总结
+
+| 模块 | 状态 |
+|------|:----:|
+| @ 提及弹窗 (AtMentionPopup) | ✅ |
+| / 命令弹窗 (SlashCommandPopup, 64 cmds) | ✅ |
+| Work 面板 (todo_write 解析) | ✅ |
+| Plan 面板 (update_plan 解析) | ✅ |
+| Help 面板 (64+43 对齐 TUI) | ✅ |
+| Sessions TreeView (真实 API) | ✅ |
+| 左右分栏 + 拖拽 | ✅ |
+| 工具卡片折叠 | ✅ |
+| 粘贴图片 | ✅ |
+| 右键 @ 加入 | ✅ |
+| Cancel interrupt API | ✅ |
+| ThreadRecord ISO 8601 | ✅ |
+
+---
+
 ## 2026-05-23 (下午)
 
 ### Phase 3.2 — Work/Plan 面板数据解析修复
