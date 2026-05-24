@@ -80,10 +80,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     const toolResult = { callId, output, status: (event.event === 'toolFailed' ? 'error' : 'success') as string, toolName };
                     this.postMessage({ type: 'tuiToolResult', toolResult });
                     if (callId) this._toolCache.delete(callId);
+                    // task 工具完成后自动刷新 Tasks 面板
+                    if (toolName && (toolName.includes("task") || toolName === "checklist_write" || toolName === "update_plan")) {
+                        this.pushTasks();
+                    }
                     break;
                 }
                 case 'turnCompleted':
                     this.postMessage({ type: 'promptEnded' });
+                this.pushTasks();
                     break;
                 case 'tuiCrashed':
                     this.postMessage({ type: 'tuiCrashed', message: 'TUI process crashed' });
@@ -290,6 +295,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         } catch (err: any) {
             logger.error('[Diff] failed to open diff editor:', err.message);
         }
+    }
+
+    /** 自动推送后台任务列表到前端 */
+    private pushTasks(): void {
+        this.tuiManager.listTasks().then(tasks => {
+            if (this._view) this.postMessage({ type: 'tasksList', tasks });
+        }).catch(() => {});
     }
     /** 保存粘贴的图片到临时目录，返回路径 */
     private async savePastedImage(fileName: string, base64Data: string): Promise<string> {

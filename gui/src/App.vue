@@ -7,7 +7,7 @@
             <div class="split-right" :style="{ flex: `0 0 ${rightWidth}px` }">
                 <div class="right-panel"><div class="panel-header" @click="panelWorkOpen = !panelWorkOpen"><span>{{ panelWorkOpen ? '▼' : '▶' }}</span><span>📋 Work</span><span v-if="todos.length > 0" class="panel-badge">{{ incompleteTodoCount }}</span></div><div v-show="panelWorkOpen" class="panel-body"><WorkPanel :todos="todos" /></div></div>
                 <div class="right-panel"><div class="panel-header" @click="panelPlanOpen = !panelPlanOpen"><span>{{ panelPlanOpen ? '▼' : '▶' }}</span><span>📐 Plan</span><span v-if="plan.steps.length > 0" class="panel-badge">{{ incompletePlanCount }}</span></div><div v-show="panelPlanOpen" class="panel-body"><PlanPanel :plan="plan" /></div></div>
-                <div class="right-panel"><div class="panel-header" @click="panelTasksOpen = !panelTasksOpen"><span>{{ panelTasksOpen ? '▼' : '▶' }}</span><span>📌 Tasks</span></div><div v-show="panelTasksOpen" class="panel-body"><TasksPanel :tasks="taskList" :loading="tasksLoading" @refresh="refreshTasks" /></div></div>
+                <div class="right-panel"><div class="panel-header" @click="panelTasksOpen = !panelTasksOpen"><span>{{ panelTasksOpen ? '▼' : '▶' }}</span><span>📌 Tasks</span></div><div v-show="panelTasksOpen" class="panel-body"><TasksPanel :tasks="taskList" :loading="tasksLoading" /></div></div>
 <HelpPanel ref="helpPanelRef" />
             </div>
         </div>
@@ -95,8 +95,6 @@ function handleApprovalDecision(decision: 'allow' | 'deny', remember: boolean) {
 }
 
 // Phase 4: View Diff → 转发到 extension host
-function refreshTasks() { tasksLoading.value = true; vscode?.postMessage({ type: 'getTasks' }); }
-
 // Phase 4: View Diff → 转发到 extension host
 function handleViewDiff(filePath: string, oldContent?: string, newContent?: string) {
     console.log('[Celest] viewDiff:', filePath);
@@ -210,7 +208,7 @@ onMounted(async () => {
         case 'tuiEvent': if (msg.event === 'sessionUpdate' && msg.update?.content?.text) { chatRef.value?.hideTyping(); stopTypewriter(); startTypewriter(msg.update.content.text); } break;
         case 'clearChat': chatRef.value?.clearMessages(); break;
         case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; break;
-        case 'tuiConnected': tuiReady.value = true; sessionId.value = msg.sessionId || ''; refreshTasks(); break;
+        case 'tuiConnected': tuiReady.value = true; sessionId.value = msg.sessionId || ''; vscode?.postMessage({ type: 'getTasks' }); break;
         case 'tuiStatus': if (msg.status === 'restarting') tuiReady.value = false; else if (msg.status === 'connected') tuiReady.value = true; break;
         case 'tasksList': taskList.value = Array.isArray(msg.tasks) ? msg.tasks : []; tasksLoading.value = false; break;
         case 'tuiCrashed': tuiReady.value = false; promptRunning.value = false; if (promptWatchdog) { clearTimeout(promptWatchdog); promptWatchdog = null; } stopTypewriter(); chatRef.value?.appendText(`\n\n⚠️ TUI crashed: ${msg.message || 'Unknown'}`); break;
