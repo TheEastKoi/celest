@@ -10,6 +10,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _promptSeq = 0;
     private _toolCache = new Map<string, { toolName: string; args: Record<string, unknown> }>();
+    private _taskPollTimer: ReturnType<typeof setInterval> | null = null;
 
     /** Phase 4: 工具元数据映射（类型/影响），TUI SSE 不传这些字段 */
     private static readonly TOOL_META: Record<string, { type: string; impact: string }> = {
@@ -180,6 +181,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     this.postMessage({ type: 'promptError', error: 'TUI not connected yet.' });
                     return;
                 }
+                this.startTaskPolling();
                 const mySeq = ++this._promptSeq;
                 if (mySeq > 1) this.tuiManager.cancel();
                 try {
@@ -297,11 +299,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private startTaskPolling(): void {
+        this.stopTaskPolling();
+        this.pushTasks();
+        this._taskPollTimer = setInterval(() => this.pushTasks(), 5000);
+    }
+    private stopTaskPolling(): void {
+        if (this._taskPollTimer) { clearInterval(this._taskPollTimer); this._taskPollTimer = null; }
+    }
+
     /** 自动推送后台任务列表到前端 */
     private pushTasks(): void {
         this.tuiManager.listTasks().then(tasks => {
+            const count = Array.isArray(tasks) ? tasks.length : 0;
+            logger.info(`[Tasks] pushTasks → ${count} tasks`);
             if (this._view) this.postMessage({ type: 'tasksList', tasks });
-        }).catch(() => {});
+        }).catch((err: any) => {
+            logger.warn(`[Tasks] pushTasks failed: ${err.message}`);
+        });
     }
     /** 保存粘贴的图片到临时目录，返回路径 */
     private async savePastedImage(fileName: string, base64Data: string): Promise<string> {

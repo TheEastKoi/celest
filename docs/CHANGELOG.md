@@ -1,4 +1,53 @@
-## 2026-05-23 (Phase 4)
+## 2026-05-24 (Phase 4 完成)
+
+### 审批 UI 重构
+
+- `ApprovalPopup.vue` — 类 TUI 终端 UI：数字键/上下键选择 + Enter 确认 + Esc 返回 + 二次确认
+- 工具元数据展示：类型、影响（红/黄/绿编码）、参数（缓存匹配）
+- 全中文汉化（标题/按钮/倒计时/确认文案）
+- `autoApprove=true` 时自动过滤冗余弹窗
+
+### Bug 修复 (9 项)
+
+| # | 问题 | 根因 | 文件 |
+|---|------|------|------|
+| 1 | 审批弹窗字段全空 | SSE 外层包装格式 `{payload: {tool_name}}` 未解包 | tuiProcessManager |
+| 2 | trust_mode:true 跳过审批 | 硬编码 `trust_mode: true` | tuiProcessManager |
+| 3 | 审批参数区始终为空 | item_xxx ≠ call_xxx，ID 匹配失败 | chatViewProvider |
+| 4 | View Diff 新旧相同 | git show 失败 fallback 到相同文件 | chatViewProvider |
+| 5 | Shell 输出不追加 | toolProgress 缺 itemId，overwrite 而非 append | tuiProcessManager + ChatView |
+| 6 | 信任会话不生效 | `_autoApprove` 依赖 TUI HTTP 返回 | tuiProcessManager |
+| 7 | 审批 404 报错 | `resp.json()` 空响应体解析失败 | tuiProcessManager |
+| 8 | acquireVsCodeApi 重复 | ChatView.vue 重复声明 | ChatView.vue |
+| 9 | ResizeObserver null | splitRef 在 tuiReady=false 时为 undefined | App.vue |
+
+### Shell 输出 + Diff
+
+- Shell 输出流式追加：pending 状态追加而非覆盖，`toolProgress` 补传 `itemId`
+- View Diff：VS Code diff editor 集成，git show HEAD 获取旧版，edit_file 传 search/replace 预览
+- git 不可用时旧侧显示空文件
+
+### Tasks 面板
+
+- `TasksPanel.vue` — 对接 `GET /v1/tasks` API，状态圆点 + 中文标签
+- 自动刷新：`toolCompleted`/`turnCompleted` 触发 + prompt 期间 5s 保底轮询
+- `/clear` 和 `newSession` 同步清空三个面板
+- 空状态统一中文风格（与 Work/Plan 对齐）
+
+### TUI 审批机制调研
+
+- `active_turn_flags` 返回 turn 级别的 `auto_approve`/`trust_mode`（非 thread 级别）
+- `remember: true` 调 `remember_thread_auto_approve()` 持久化到 thread record
+- turn 创建时 `auto_approve` 从 `thread.auto_approve` 继承
+
+### 构建验证
+
+- Extension: 37.4 KB, GUI JS: 248 KB, CSS: 21.6 KB
+- vitest: 11/11 passed
+
+---
+
+## 2026-05-23 (Phase 4 核心)
 
 ### Phase 4 — 审批 + 执行
 

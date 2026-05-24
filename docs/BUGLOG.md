@@ -18,6 +18,28 @@
 
 ## trust_mode: true 导致审批被跳过 (2026-05-24)
 
+**现象:** 输入"列出当前目录文件"后没有审批弹窗弹出。
+**根因:** `sendPrompt` 中 `trust_mode: true` 硬编码，在 TUI 中 `trust_mode` 会跳过所有审批检查（`if auto_approve || trust_mode`）。
+**修复:** 改为 `trust_mode: false`，由审批流程控制。用户通过"信任会话"按钮提升为 `auto_approve: true`。
+
+---
+
+## 审批 ID 与 item ID 不匹配导致缓存失效 (2026-05-24)
+
+**现象:** 审批弹窗参数区始终为空。
+**根因:** TUI 中 tool_call 的 TurnItem id (`item_xxx`) ≠ engine call id (`call_xxx`)。`_toolCache` 按 `item.id` 存储，`approval.id` 查找时永远 MISS。
+**修复:** 改为按工具名遍历匹配缓存（同一 turn 内只有一个待审批工具），不再依赖 ID 精确匹配。
+
+---
+
+## View Diff 新旧文件相同 (2026-05-24)
+
+**现象:** 点击 View Diff 后 diff editor 显示两侧内容完全一样。
+**根因:** `git show HEAD:path` 失败时 `oldUri = newUri`，指向同一个文件。
+**修复:** git 失败时旧侧显示空文件，至少能看出差异。新旧内容都写入临时文件避免锁定。`edit_file` 前端传 search/replace 作为 old/new 预览。
+
+---
+
 ## Phase 4 设计决策：auto_approve 开关 (2026-05-23)
 
 **背景:** 审批流程中用户可能希望一键批准当前会话的所有后续工具调用。
@@ -31,7 +53,25 @@
 
 ---
 
-## Vue 模板中不能使用 JavaScript 块注释 (2026-05-23)
+---
+
+## Tasks 面板轮询在 turn 结束后不停止 (2026-05-24)
+
+**现象:** Tasks 面板数据一直显示旧任务，turn 结束后状态不再更新。
+**根因:** 只在 `toolCompleted` 时刷新，但后台任务状态变化不产生 tool call 事件。
+**修复:** 新增 `startTaskPolling()`/`stopTaskPolling()`，prompt 开始时启动 3→5s 轮询，`turnCompleted` 时停止。
+
+---
+
+## 审批弹窗冗余 (2026-05-24)
+
+**现象:** 点"信任会话"后，后续工具仍然弹窗但审批已自动通过（弹窗形同虚设）。
+**根因:** TUI 在 `auto_approve=true` 时仍发送 `approval.required` 事件（只是瞬间自动批准）。
+**修复:** `chatViewProvider.onApprovalRequired` 中检查 `tuiManager.autoApprove`，为 `true` 时跳过弹窗。
+
+---
+
+## Vue 模板注释语法错误 (2026-05-23)
 
 **现象:** `vite build` 报错 `Error parsing JavaScript expression: Unexpected token`
 **根因:** `ApprovalPopup.vue` 模板中 `@click.self="/* ignore backdrop click */"` 使用了 JS 块注释 `/* */`。Vue 模板编译器在解析属性表达式时不支持块注释。

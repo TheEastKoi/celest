@@ -105,7 +105,7 @@
 - `src/tuiProcessManager.ts` — 添加 listThreads() HTTP API
 - `src/sessionsTreeProvider.ts` — 接入真实 thread 数据源码
 
-## Phase 4: 审批 + 执行 🚧 (核心完成)
+## Phase 4: 审批 + 执行 ✅ (完成, 2026-05-24)
 
 **目标:** 工具执行的用户确认流程
 
@@ -115,19 +115,39 @@
 - [x] `decideApproval(approvalId, decision, remember)` → `POST /v1/approvals/{id}`
 - [x] `approval.decided` / `approval.timeout` 事件处理
 
-### 4.2 审批 UI ✅ (2026-05-23)
-- [x] `ApprovalPopup.vue` — 工具名 + 描述 + 300 秒倒计时
-- [x] 三种决策按钮：Allow / Allow (Session) / Deny
-- [x] 决策后禁用按钮 + 超时自动 Deny
+### 4.2 审批 UI ✅ (2026-05-24)
+- [x] `ApprovalPopup.vue` — 类 TUI 终端 UI，数字键/上下键选择 + Enter 确认 + Esc 返回
+- [x] 三种决策：允许本次 / 信任会话 / 拒绝，含二次确认状态
+- [x] 工具元数据展示：类型、影响（颜色编码）、参数（缓存匹配）
+- [x] 中文汉化（标题/按钮/倒计时/确认文案）
 
-### 4.3 消息路由 ✅ (2026-05-23)
+### 4.3 消息路由 ✅ (2026-05-24)
 - [x] `chatViewProvider.ts` — `tuiApprovalRequired` / `tuiApprovalDecided` / `tuiApprovalTimeout` 消息
 - [x] WebView `approvalDecision` 消息 → TUI API
 - [x] `App.vue` — 审批状态管理 + 弹窗集成
+- [x] `autoApprove=true` 时自动过滤冗余弹窗
 
-### 4.4 待完成
-- [ ] Shell 输出实时流（`item.delta` for `tool_call` 已有基础，需验证 exec_shell）
-- [ ] Patch 应用展示 + VS Code Diff Editor (Phase 4.x 或 Phase 6)
+### 4.4 核心 Bug 修复 ✅ (2026-05-24)
+- [x] SSE 外层包装解包 — `approval.required` 字段全部为空的根因
+- [x] `trust_mode: false` — 关闭默认信任，启用审批流程
+- [x] `_autoApprove` 提前设置 — 不依赖 TUI HTTP 返回值
+- [x] turn 创建请求同步携带 `auto_approve` 参数
+- [x] 审批工具参数缓存 — 按工具名跨事件关联（item_xxx ≠ call_xxx）
+- [x] 审批决策 404 保护 — 三层 `resp.json()` 异常防护
+- [x] `approvalDecided`/`approvalTimeout` 同源解包修复
+
+### 4.5 Shell 输出 + Diff ✅ (2026-05-24)
+- [x] Shell 输出流式追加 — `updateToolResult` pending 状态追加而非覆盖
+- [x] `toolProgress` 补传 `itemId` 以匹配 tool card
+- [x] View Diff — VS Code diff editor 集成，git show HEAD 获取旧版
+- [x] `edit_file` 传 search/replace 作为 diff 预览
+- [x] git 不可用时显示空旧侧，不 fallback 到相同文件
+
+### 4.6 Tasks 面板 ✅ (2026-05-24)
+- [x] `TasksPanel.vue` — 对接 `GET /v1/tasks` API，状态圆点 + 中文标签
+- [x] 自动刷新机制 — `toolCompleted`/`turnCompleted` 触发 + prompt 期间 5s 保底轮询
+- [x] 空状态统一中文风格（与 Work/Plan 对齐）
+- [x] `/clear` 和 `newSession` 同步清空三个面板
 
 ## Phase 5: 配置 + 模型 ⏳ (未开始)
 
@@ -150,8 +170,8 @@
 
 ---
 
-**当前进度:** Phase 4 核心完成（审批弹窗 + 决策路由），待 Shell 输出流 + Diff Editor  
-**最后更新:** 2026-05-23 (Phase 4 开发)
+**当前进度:** Phase 4 完成（审批 + Diff + Tasks 面板），待进入 Phase 5  
+**最后更新:** 2026-05-24 (Phase 4 完成)
 
 ---
 

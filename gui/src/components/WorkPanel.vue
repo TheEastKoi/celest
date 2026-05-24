@@ -2,8 +2,8 @@
     <div class="work-panel">
         <div v-if="todos.length === 0" class="empty-state">
             <div class="empty-icon">📋</div>
-            <p>No active tasks</p>
-            <p class="empty-hint">Work items will appear here when the agent uses tools</p>
+            <p>暂无工作任务</p>
+            <p class="empty-hint">agent 使用任务工具后会显示在这里</p>
         </div>
 
         <ul v-else class="todo-list">

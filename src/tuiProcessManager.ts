@@ -167,13 +167,15 @@ export class TuiProcessManager {
 
     /** 列出后台任务 (GET /v1/tasks) */
     async listTasks(): Promise<any[]> {
-        if (!this._started) return [];
+        if (!this._started) { logger.warn('[Tasks] TUI not started, returning empty'); return []; }
         try {
             const resp = await fetch(`http://127.0.0.1:${this._port}/v1/tasks?limit=50`);
-            if (!resp.ok) return [];
+            if (!resp.ok) { logger.warn(`[Tasks] HTTP ${resp.status}`); return []; }
             const data = await resp.json() as any;
-            return Array.isArray(data.tasks) ? data.tasks : (Array.isArray(data) ? data : []);
-        } catch { return []; }
+            const list = Array.isArray(data.tasks) ? data.tasks : (Array.isArray(data) ? data : []);
+            logger.info(`[Tasks] listTasks → ${list.length} tasks: ${list.map((t:any) => `${t.id}=${t.status}`).join(', ')}`);
+            return list;
+        } catch (err: any) { logger.warn(`[Tasks] listTasks error: ${err.message}`); return []; }
     }
 
     /** 取消当前生成 — 优先使用 HTTP interrupt API，失败时 fallback abort */

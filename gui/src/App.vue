@@ -74,12 +74,12 @@ function startTypewriter(text: string) { stopTypewriter(); let i = 0; typewriter
 let promptWatchdog: ReturnType<typeof setTimeout> | null = null; function resetPromptWatchdog() { if (promptWatchdog) clearTimeout(promptWatchdog); if (promptRunning.value) { promptWatchdog = setTimeout(() => { if (promptRunning.value) { promptRunning.value = false; stopTypewriter(); } }, 180_000); } }
 
 function handleSend(prompt: string) { const cmdMatch = prompt.trim().match(/^\/(\S+)(?:\s+(.*))?$/); if (cmdMatch) { if (dispatchSlashCommand(cmdMatch[1], cmdMatch[2] || '')) return; } chatRef.value?.addUserMessage(prompt); chatRef.value?.showTyping(); promptRunning.value = true; resetPromptWatchdog(); vscode?.postMessage({ type: 'sendPrompt', prompt }); }
-function dispatchSlashCommand(cmd: string, _args: string): boolean { switch (cmd) { case 'clear': chatRef.value?.clearMessages(); todos.value = []; plan.value = { steps: [] }; turnCount.value = 0; return true; case 'help': showHelpMessage(); return true; case 'model': chatRef.value?.addUserMessage('/model'); chatRef.value?.appendText('\n\n📋 Model switching will be available in Phase 5.'); return true; default: return false; } }
+function dispatchSlashCommand(cmd: string, _args: string): boolean { switch (cmd) { case 'clear': chatRef.value?.clearMessages(); todos.value = []; plan.value = { steps: [] }; taskList.value = []; turnCount.value = 0; return true; case 'help': showHelpMessage(); return true; case 'model': chatRef.value?.addUserMessage('/model'); chatRef.value?.appendText('\n\n📋 Model switching will be available in Phase 5.'); return true; default: return false; } }
 
 function showHelpMessage() { helpPanelRef.value?.show(); }
 
 function handleStop() { stopTypewriter(); chatRef.value?.hideTyping(); vscode?.postMessage({ type: 'cancelPrompt' }); }
-function handleClearChat() { chatRef.value?.clearMessages(); todos.value = []; plan.value = { steps: [] }; }
+function handleClearChat() { chatRef.value?.clearMessages(); todos.value = []; plan.value = { steps: [] }; taskList.value = []; }
 function handleNewWindow() { vscode?.postMessage({ type: 'openNewWindow' }); }
 
 // Phase 4: 审批决策 → 发送到后端
@@ -207,7 +207,7 @@ onMounted(async () => {
         case 'pasteImageResult': inputBoxRef.value?.replaceText('@[' + (msg.fileName || '') + '] ', '@' + (msg.filePath || '') + ' '); break;
         case 'tuiEvent': if (msg.event === 'sessionUpdate' && msg.update?.content?.text) { chatRef.value?.hideTyping(); stopTypewriter(); startTypewriter(msg.update.content.text); } break;
         case 'clearChat': chatRef.value?.clearMessages(); break;
-        case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; break;
+        case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; break;
         case 'tuiConnected': tuiReady.value = true; sessionId.value = msg.sessionId || ''; vscode?.postMessage({ type: 'getTasks' }); break;
         case 'tuiStatus': if (msg.status === 'restarting') tuiReady.value = false; else if (msg.status === 'connected') tuiReady.value = true; break;
         case 'tasksList': taskList.value = Array.isArray(msg.tasks) ? msg.tasks : []; tasksLoading.value = false; break;

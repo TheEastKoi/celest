@@ -2,8 +2,8 @@
     <div class="plan-panel">
         <div v-if="!hasPlan" class="empty-state">
             <div class="empty-icon">📐</div>
-            <p>No active plan</p>
-            <p class="empty-hint">Plan steps will appear here when the agent uses update_plan</p>
+            <p>暂无计划</p>
+            <p class="empty-hint">agent 使用 update_plan 后会显示在这里</p>
         </div>
 
         <template v-else>
