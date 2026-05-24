@@ -165,6 +165,17 @@ export class TuiProcessManager {
         }
     }
 
+    /** 列出后台任务 (GET /v1/tasks) */
+    async listTasks(): Promise<any[]> {
+        if (!this._started) return [];
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/tasks?limit=50`);
+            if (!resp.ok) return [];
+            const data = await resp.json() as any;
+            return Array.isArray(data.tasks) ? data.tasks : (Array.isArray(data) ? data : []);
+        } catch { return []; }
+    }
+
     /** 取消当前生成 — 优先使用 HTTP interrupt API，失败时 fallback abort */
     cancel(): void {
         logger.info('[Thread] cancelling...');

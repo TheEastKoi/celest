@@ -219,6 +219,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 await this.openDiffEditor(msg.filePath, msg.oldContent, msg.newContent);
                 break;
             }
+            case 'getTasks': {
+                const tasks = await this.tuiManager.listTasks();
+                this.postMessage({ type: 'tasksList', tasks });
+                break;
+            }
         }
     }
 

@@ -7,7 +7,7 @@
             <div class="split-right" :style="{ flex: `0 0 ${rightWidth}px` }">
                 <div class="right-panel"><div class="panel-header" @click="panelWorkOpen = !panelWorkOpen"><span>{{ panelWorkOpen ? '▼' : '▶' }}</span><span>📋 Work</span><span v-if="todos.length > 0" class="panel-badge">{{ incompleteTodoCount }}</span></div><div v-show="panelWorkOpen" class="panel-body"><WorkPanel :todos="todos" /></div></div>
                 <div class="right-panel"><div class="panel-header" @click="panelPlanOpen = !panelPlanOpen"><span>{{ panelPlanOpen ? '▼' : '▶' }}</span><span>📐 Plan</span><span v-if="plan.steps.length > 0" class="panel-badge">{{ incompletePlanCount }}</span></div><div v-show="panelPlanOpen" class="panel-body"><PlanPanel :plan="plan" /></div></div>
-                <div class="right-panel"><div class="panel-header" @click="panelTasksOpen = !panelTasksOpen"><span>{{ panelTasksOpen ? '▼' : '▶' }}</span><span>📌 Tasks</span></div><div v-show="panelTasksOpen" class="panel-body"><div class="tasks-placeholder">Background tasks will appear here</div></div></div>
+                <div class="right-panel"><div class="panel-header" @click="panelTasksOpen = !panelTasksOpen"><span>{{ panelTasksOpen ? '▼' : '▶' }}</span><span>📌 Tasks</span></div><div v-show="panelTasksOpen" class="panel-body"><TasksPanel :tasks="taskList" :loading="tasksLoading" @refresh="refreshTasks" /></div></div>
 <HelpPanel ref="helpPanelRef" />
             </div>
         </div>
@@ -39,6 +39,7 @@ import PlanPanel from './components/PlanPanel.vue';
 import ApprovalPopup from './components/ApprovalPopup.vue';
 import type { FileItem } from './components/AtMentionPopup.vue';
 import HelpPanel from './components/HelpPanel.vue';
+import TasksPanel from './components/TasksPanel.vue';
 
 declare function acquireVsCodeApi(): any; const vscode = acquireVsCodeApi?.();
 const chatRef = ref<InstanceType<typeof ChatView>>(); const helpPanelRef = ref<InstanceType<typeof HelpPanel>>(); const inputBoxRef = ref<InstanceType<typeof InputBox>>(); const splitRef = ref<HTMLElement>();
@@ -58,6 +59,7 @@ function initSplitWidth() { if (splitRef.value) { const total = splitRef.value.c
 function startResize(e: MouseEvent) { isResizing.value = true; const startX = e.clientX; const startRight = rightWidth.value; const startTotal = splitRef.value?.clientWidth || 800; const onMove = (ev: MouseEvent) => { const dx = startX - ev.clientX; const newRight = Math.max(MIN_RIGHT, Math.min(startTotal - MIN_LEFT, startRight + dx)); rightWidth.value = newRight; leftWidth.value = startTotal - newRight - 4; }; const onUp = () => { isResizing.value = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); document.body.style.cursor = ''; document.body.style.userSelect = ''; }; document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; }
 
 const panelWorkOpen = ref(true); const panelPlanOpen = ref(true); const panelTasksOpen = ref(true);
+const taskList = ref<any[]>([]); const tasksLoading = ref(false);
 const fileList = ref<FileItem[]>([]);
 
 interface TodoItem { content: string; status: 'pending' | 'in_progress' | 'completed'; } const todos = ref<TodoItem[]>([]); const incompleteTodoCount = computed(() => todos.value.filter(t => t.status !== 'completed').length);
@@ -91,6 +93,9 @@ function handleApprovalDecision(decision: 'allow' | 'deny', remember: boolean) {
     });
     showApproval.value = false;
 }
+
+// Phase 4: View Diff → 转发到 extension host
+function refreshTasks() { tasksLoading.value = true; vscode?.postMessage({ type: 'getTasks' }); }
 
 // Phase 4: View Diff → 转发到 extension host
 function handleViewDiff(filePath: string, oldContent?: string, newContent?: string) {
@@ -205,8 +210,9 @@ onMounted(async () => {
         case 'tuiEvent': if (msg.event === 'sessionUpdate' && msg.update?.content?.text) { chatRef.value?.hideTyping(); stopTypewriter(); startTypewriter(msg.update.content.text); } break;
         case 'clearChat': chatRef.value?.clearMessages(); break;
         case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; break;
-        case 'tuiConnected': tuiReady.value = true; sessionId.value = msg.sessionId || ''; break;
+        case 'tuiConnected': tuiReady.value = true; sessionId.value = msg.sessionId || ''; refreshTasks(); break;
         case 'tuiStatus': if (msg.status === 'restarting') tuiReady.value = false; else if (msg.status === 'connected') tuiReady.value = true; break;
+        case 'tasksList': taskList.value = Array.isArray(msg.tasks) ? msg.tasks : []; tasksLoading.value = false; break;
         case 'tuiCrashed': tuiReady.value = false; promptRunning.value = false; if (promptWatchdog) { clearTimeout(promptWatchdog); promptWatchdog = null; } stopTypewriter(); chatRef.value?.appendText(`\n\n⚠️ TUI crashed: ${msg.message || 'Unknown'}`); break;
 
         // Phase 4: 审批消息
