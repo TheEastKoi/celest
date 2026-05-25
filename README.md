@@ -42,6 +42,22 @@
 | 💾 消息持久化 — localStorage 防抖自动保存 | ✅ |
 | 🎨 VS Code 主题适配 — 暗色/亮色主题跟随 | ✅ |
 
+## 📸 截图
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="Celest 工作界面" width="800">
+  <br><em>工作界面 — Chat + Work/Plan/Tasks 面板</em>
+</p>
+
+<details>
+<summary>⚙ 设置面板</summary>
+<p align="center">
+  <img src="docs/settings-general.png" alt="通用设置" width="400">
+  <img src="docs/settings-model.png" alt="模型设置" width="400">
+  <img src="docs/settings-about.png" alt="关于" width="400">
+</p>
+</details>
+
 ## 📦 安装
 
 ### 前置条件

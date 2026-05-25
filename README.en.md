@@ -42,6 +42,22 @@
 | 💾 Message persistence — localStorage debounced auto-save | ✅ |
 | 🎨 VS Code theme — dark/light mode adaptation | ✅ |
 
+## 📸 Screenshots
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="Celest Workspace" width="800">
+  <br><em>Workspace — Chat + Work/Plan/Tasks panels</em>
+</p>
+
+<details>
+<summary>⚙ Settings Panel</summary>
+<p align="center">
+  <img src="docs/settings-general.png" alt="General Settings" width="400">
+  <img src="docs/settings-model.png" alt="Model Settings" width="400">
+  <img src="docs/settings-about.png" alt="About" width="400">
+</p>
+</details>
+
 ## 📦 Installation
 
 ### Prerequisites
