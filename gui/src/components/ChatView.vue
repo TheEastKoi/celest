@@ -139,6 +139,9 @@ function appendText(text: string) {
     scrollToBottom();
 }
 
+/** 打字机逐字追加（供 App.vue typewriter 定时器调用） */
+function appendTypingChar(ch: string) { appendText(ch); }
+
 /** 追加或创建 reasoning part（thinking 块） */
 function appendReasoning(text: string) {
     const msg = ensureAssistant();
@@ -339,6 +342,7 @@ defineExpose({
     clearMessages,
     showTyping,
     hideTyping,
+    appendTypingChar,
 });
 </script>
 

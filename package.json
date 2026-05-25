@@ -58,6 +58,23 @@
           "type": "string",
           "default": "",
           "description": "Custom path to deepseek-tui binary (leave empty for auto-download)"
+        },
+        "celest.locale": {
+          "type": "string",
+          "default": "zh-CN",
+          "enum": ["zh-CN", "en"],
+          "description": "Celest UI language (zh-CN / en)"
+        },
+        "celest.provider": {
+          "type": "string",
+          "default": "deepseek",
+          "description": "API provider (deepseek, openai, nvidia-nim, ollama)"
+        },
+        "celest.reasoningEffort": {
+          "type": "string",
+          "default": "max",
+          "enum": ["off", "low", "medium", "high", "max"],
+          "description": "Model reasoning depth"
         }
       }
     },
@@ -122,6 +139,11 @@
         "command": "celest.openInNewWindow",
         "category": "Celest",
         "title": "Open in New Window"
+      },
+      {
+        "command": "celest.downloadBinary",
+        "category": "Celest",
+        "title": "Download TUI Binary"
       }
     ],
     "keybindings": [
@@ -199,33 +221,6 @@
           "command": "celest.addToChat",
           "group": "celest@1"
         }
-      ],
-      "view/title": [
-        {
-          "command": "celest.newSession",
-          "group": "navigation@1",
-          "when": "view == celest.chatPanel"
-        },
-        {
-          "command": "celest.viewHistory",
-          "group": "navigation@2",
-          "when": "view == celest.chatPanel"
-        },
-        {
-          "command": "celest.openSettings",
-          "group": "navigation@3",
-          "when": "view == celest.chatPanel"
-        },
-        {
-          "command": "celest.clearChat",
-          "group": "navigation@4",
-          "when": "view == celest.chatPanel"
-        },
-        {
-          "command": "celest.openInNewWindow",
-          "group": "navigation@5",
-          "when": "view == celest.chatPanel"
-        }
       ]
     }
   },
@@ -233,25 +228,21 @@
     "build": "node build.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "watch": "node build.mjs --watch",
-    "package": "vsce package"
+    "lint": "eslint src --ext ts"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "@types/markdown-it": "^13.0.0",
-    "@types/vscode": "1.70",
-    "@vscode/test-electron": "^2.4.0",
-    "@vscode/vsce": "^2.22.0",
-    "esbuild": "^0.25.0",
-    "typescript": "5.5.4",
-    "vite": "^5.0.0",
+    "@types/node": "^18.19.0",
+    "@types/vscode": "^1.70.0",
     "@vitejs/plugin-vue": "^5.0.0",
-    "vitest": "^1.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.0.0",
+    "vitest": "^2.0.0",
+    "vue": "^3.4.0",
     "vue-tsc": "^2.0.0"
   },
   "dependencies": {
-    "vue": "^3.4.0",
-    "markdown-it": "^14.0.0",
-    "highlight.js": "^11.9.0"
+    "highlight.js": "^11.10.0",
+    "markdown-it": "^14.1.0"
   }
 }

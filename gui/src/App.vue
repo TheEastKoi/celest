@@ -1,21 +1,53 @@
 <template>
     <div class="celest-app">
-        <header class="app-header"><span class="app-title">🌙 Celest</span><div class="header-actions"><button class="header-btn" @click="handleClearChat" title="Clear chat">🗑</button><button class="header-btn" @click="handleNewWindow" title="Open in new window">↗</button></div></header>
+        <header class="app-header">
+            <span class="app-title">🌙 Celest</span>
+            <div class="header-actions">
+                <select v-model="currentModel" class="model-select" @change="handleModelChange" title="Switch model">
+                    <option v-for="m in availableModels" :key="m.id" :value="m.id">{{ m.name }}</option>
+                </select>
+                <button class="header-btn" @click="openSettings" title="Settings">⚙</button>
+                <button class="header-btn" @click="handleClearChat" title="Clear chat">🗑</button>
+                <button class="header-btn" @click="handleNewWindow" title="Open in new window">↗</button>
+            </div>
+        </header>
         <div class="main-split" v-if="tuiReady" ref="splitRef">
             <div class="split-left" :style="{ flex: `0 0 ${leftWidth}px` }"><ChatView ref="chatRef" @viewDiff="handleViewDiff" /></div>
             <div class="split-handle" @mousedown="startResize" :class="{ dragging: isResizing }"></div>
             <div class="split-right" :style="{ flex: `0 0 ${rightWidth}px` }">
-                <div class="right-panel"><div class="panel-header" @click="panelWorkOpen = !panelWorkOpen"><span>{{ panelWorkOpen ? '▼' : '▶' }}</span><span>📋 Work</span><span v-if="todos.length > 0" class="panel-badge">{{ incompleteTodoCount }}</span></div><div v-show="panelWorkOpen" class="panel-body"><WorkPanel :todos="todos" /></div></div>
-                <div class="right-panel"><div class="panel-header" @click="panelPlanOpen = !panelPlanOpen"><span>{{ panelPlanOpen ? '▼' : '▶' }}</span><span>📐 Plan</span><span v-if="plan.steps.length > 0" class="panel-badge">{{ incompletePlanCount }}</span></div><div v-show="panelPlanOpen" class="panel-body"><PlanPanel :plan="plan" /></div></div>
-                <div class="right-panel"><div class="panel-header" @click="panelTasksOpen = !panelTasksOpen"><span>{{ panelTasksOpen ? '▼' : '▶' }}</span><span>📌 Tasks</span></div><div v-show="panelTasksOpen" class="panel-body"><TasksPanel :tasks="taskList" :loading="tasksLoading" /></div></div>
-<HelpPanel ref="helpPanelRef" />
+                <div class="right-panel">
+                    <div class="panel-header" @click="panelWorkOpen = !panelWorkOpen">
+                        <span class="panel-arrow">{{ panelWorkOpen ? '▼' : '▶' }}</span>
+                        <span class="panel-label">📋 {{ t('panel.work') }}</span>
+                        <span v-if="todos.length > 0" class="panel-badge">{{ incompleteTodoCount }}</span>
+                    </div>
+                    <div v-show="panelWorkOpen" class="panel-body"><WorkPanel :todos="todos" /></div>
+                </div>
+                <div class="right-panel">
+                    <div class="panel-header" @click="panelPlanOpen = !panelPlanOpen">
+                        <span class="panel-arrow">{{ panelPlanOpen ? '▼' : '▶' }}</span>
+                        <span class="panel-label">📐 {{ t('panel.plan') }}</span>
+                        <span v-if="plan.steps.length > 0" class="panel-badge">{{ incompletePlanCount }}</span>
+                    </div>
+                    <div v-show="panelPlanOpen" class="panel-body"><PlanPanel :plan="plan" /></div>
+                </div>
+                <div class="right-panel">
+                    <div class="panel-header" @click="panelTasksOpen = !panelTasksOpen">
+                        <span class="panel-arrow">{{ panelTasksOpen ? '▼' : '▶' }}</span>
+                        <span class="panel-label">📌 {{ t('panel.tasks') }}</span>
+                    </div>
+                    <div v-show="panelTasksOpen" class="panel-body"><TasksPanel :tasks="taskList" :loading="tasksLoading" /></div>
+                </div>
+                <HelpPanel ref="helpPanelRef" />
             </div>
         </div>
         <main v-if="!tuiReady" class="chat-area"><ChatView ref="chatRef" @viewDiff="handleViewDiff" /></main>
-        <footer class="input-area"><div v-if="!tuiReady" class="connecting-banner">Connecting to DeepSeek TUI...</div><InputBox ref="inputBoxRef" @send="handleSend" @stop="handleStop" :disabled="!tuiReady" :showStop="promptRunning" :files="fileList" /></footer>
-        <ContextBar :modelName="modelName" :turnCount="turnCount" :sessionId="sessionId" />
+        <footer class="input-area">
+            <div v-if="!tuiReady" class="connecting-banner">{{ connectingText }}</div>
+            <InputBox ref="inputBoxRef" @send="handleSend" @stop="handleStop" :disabled="!tuiReady" :showStop="promptRunning" :files="fileList" />
+        </footer>
+        <ContextBar :modelName="currentModelName" :mode="currentMode" :turnCount="turnCount" :sessionId="sessionId" @cycleMode="cycleMode" />
 
-        <!-- Phase 4: 审批弹窗 -->
         <ApprovalPopup
             :visible="showApproval"
             :approvalId="approvalId"
@@ -27,6 +59,23 @@
             @decide="handleApprovalDecision"
         />
     </div>
+
+    <!-- Phase 5: 设置面板 — 移到 celest-app 外部避免 overflow:hidden 裁剪 -->
+    <SettingsPanel
+        :visible="showSettings"
+        :config="settingsConfig"
+        :apiKeyStored="apiKeyStored"
+        :tuiVersion="tuiVersion"
+        :tuiConnected="tuiReady"
+        :extVersion="extVersion"
+        :nodeVersion="nodeVersion"
+        :vscodeVersion="vscodeVersion"
+        @close="showSettings = false"
+        @save="handleSettingsSave"
+        @downloadBinary="handleDownloadBinary"
+        @checkUpdate="handleCheckUpdate"
+        @browseBinary="handleBrowseBinary"
+    />
 </template>
 
 <script setup lang="ts">
@@ -37,115 +86,146 @@ import ContextBar from './components/ContextBar.vue';
 import WorkPanel from './components/WorkPanel.vue';
 import PlanPanel from './components/PlanPanel.vue';
 import ApprovalPopup from './components/ApprovalPopup.vue';
+import SettingsPanel from './components/SettingsPanel.vue';
+import { getAvailableModels, setLocale, t } from './i18n';
 import type { FileItem } from './components/AtMentionPopup.vue';
 import HelpPanel from './components/HelpPanel.vue';
 import TasksPanel from './components/TasksPanel.vue';
 
 declare function acquireVsCodeApi(): any; const vscode = acquireVsCodeApi?.();
 const chatRef = ref<InstanceType<typeof ChatView>>(); const helpPanelRef = ref<InstanceType<typeof HelpPanel>>(); const inputBoxRef = ref<InstanceType<typeof InputBox>>(); const splitRef = ref<HTMLElement>();
-const promptRunning = ref(false); const tuiReady = ref(false); const modelName = ref('deepseek-v4-flash'); const turnCount = ref(0); const sessionId = ref<string>('connecting');
+const
+    fileList = ref<FileItem[]>([]),
+    turnCount = ref(0),
+    todos = ref<any[]>([]),
+    plan = ref<{ explanation?: string; steps: any[] }>({ steps: [] }),
+    taskList = ref<any[]>([]),
+    tasksLoading = ref(false),
+    tuiReady = ref(false),
+    sessionId = ref(''),
+    leftWidth = ref(300),
+    rightWidth = ref(300),
+    isResizing = ref(false),
+    panelWorkOpen = ref(true),
+    panelPlanOpen = ref(true),
+    panelTasksOpen = ref(true),
+    promptRunning = ref(false),
+    requestSeq = ref(0),
+    currentModel = ref('deepseek-v4-flash'),
+    currentMode = ref('agent'),
+    availableModels = getAvailableModels();
 
-// Phase 4: 审批状态
-const showApproval = ref(false);
-const approvalId = ref('');
-const approvalToolName = ref('');
-const approvalDescription = ref('');
-const approvalToolType = ref('');
-const approvalImpact = ref('');
-const approvalParams = ref('');
+const showApproval = ref(false),
+    approvalId = ref(''),
+    approvalToolName = ref(''),
+    approvalDescription = ref(''),
+    approvalToolType = ref(''),
+    approvalImpact = ref(''),
+    approvalParams = ref('');
 
-const DEFAULT_RIGHT = 280; const MIN_LEFT = 200; const MIN_RIGHT = 160; const leftWidth = ref(400); const rightWidth = ref(DEFAULT_RIGHT); const isResizing = ref(false);
-function initSplitWidth() { if (splitRef.value) { const total = splitRef.value.clientWidth; rightWidth.value = Math.round(total * 0.35); leftWidth.value = total - rightWidth.value - 4; } }
-function startResize(e: MouseEvent) { isResizing.value = true; const startX = e.clientX; const startRight = rightWidth.value; const startTotal = splitRef.value?.clientWidth || 800; const onMove = (ev: MouseEvent) => { const dx = startX - ev.clientX; const newRight = Math.max(MIN_RIGHT, Math.min(startTotal - MIN_LEFT, startRight + dx)); rightWidth.value = newRight; leftWidth.value = startTotal - newRight - 4; }; const onUp = () => { isResizing.value = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); document.body.style.cursor = ''; document.body.style.userSelect = ''; }; document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; }
+const showSettings = ref(false),
+    settingsConfig = ref({
+        apiBase: 'https://api.deepseek.com',
+        defaultModel: 'deepseek-v4-flash',
+        autoDownloadBinary: true,
+        binaryPath: '',
+        locale: 'zh-CN',
+        provider: 'deepseek',
+        reasoningEffort: 'max',
+    }),
+    apiKeyStored = ref(false),
+    tuiVersion = ref(''),
+    extVersion = ref('0.1.0'),
+    nodeVersion = ref(''),
+    vscodeVersion = ref(''),
+    connectingText = ref(t('connecting'));
 
-const panelWorkOpen = ref(true); const panelPlanOpen = ref(true); const panelTasksOpen = ref(true);
-const taskList = ref<any[]>([]); const tasksLoading = ref(false);
-const fileList = ref<FileItem[]>([]);
+const currentModelName = computed(() => {
+    const m = availableModels.find(m => m.id === currentModel.value);
+    return m ? m.name : currentModel.value;
+});
+const incompleteTodoCount = computed(() => todos.value.filter((t: any) => t.status === 'in_progress' || t.status === 'pending').length);
+const incompletePlanCount = computed(() => plan.value.steps.filter((s: any) => s.status === 'in_progress' || s.status === 'pending').length);
 
-interface TodoItem { content: string; status: 'pending' | 'in_progress' | 'completed'; } const todos = ref<TodoItem[]>([]); const incompleteTodoCount = computed(() => todos.value.filter(t => t.status !== 'completed').length);
-interface PlanStep { step: string; status: 'pending' | 'in_progress' | 'completed'; } interface PlanData { explanation?: string; steps: PlanStep[]; } const plan = ref<PlanData>({ steps: [] }); const incompletePlanCount = computed(() => plan.value.steps.filter(s => s.status !== 'completed').length);
-
-
-
-watch(todos, (val) => { if (val.length > 0) panelWorkOpen.value = true; }, { deep: true }); watch(() => plan.value.steps, (val) => { if (val.length > 0) panelPlanOpen.value = true; }, { deep: true });
-
-let typewriterTimer: ReturnType<typeof setInterval> | null = null; let typewriterQueue: string[] = []; const TYPEWRITER_SPEED = 15;
-function startTypewriter(text: string) { stopTypewriter(); let i = 0; typewriterQueue = []; while (i < text.length) { const sz = 2 + Math.floor(Math.random() * 3); typewriterQueue.push(text.slice(i, i + sz)); i += sz; } typewriterTimer = setInterval(() => { if (typewriterQueue.length === 0) { stopTypewriter(); return; } chatRef.value?.appendText(typewriterQueue.shift()!); }, TYPEWRITER_SPEED); } function stopTypewriter() { if (typewriterTimer) { clearInterval(typewriterTimer); typewriterTimer = null; } typewriterQueue = []; }
-let promptWatchdog: ReturnType<typeof setTimeout> | null = null; function resetPromptWatchdog() { if (promptWatchdog) clearTimeout(promptWatchdog); if (promptRunning.value) { promptWatchdog = setTimeout(() => { if (promptRunning.value) { promptRunning.value = false; stopTypewriter(); } }, 180_000); } }
-
-function handleSend(prompt: string) { const cmdMatch = prompt.trim().match(/^\/(\S+)(?:\s+(.*))?$/); if (cmdMatch) { if (dispatchSlashCommand(cmdMatch[1], cmdMatch[2] || '')) return; } chatRef.value?.addUserMessage(prompt); chatRef.value?.showTyping(); promptRunning.value = true; resetPromptWatchdog(); vscode?.postMessage({ type: 'sendPrompt', prompt }); }
-function dispatchSlashCommand(cmd: string, _args: string): boolean { switch (cmd) { case 'clear': chatRef.value?.clearMessages(); todos.value = []; plan.value = { steps: [] }; taskList.value = []; turnCount.value = 0; return true; case 'help': showHelpMessage(); return true; case 'model': chatRef.value?.addUserMessage('/model'); chatRef.value?.appendText('\n\n📋 Model switching will be available in Phase 5.'); return true; default: return false; } }
-
-function showHelpMessage() { helpPanelRef.value?.show(); }
-
-function handleStop() { stopTypewriter(); chatRef.value?.hideTyping(); vscode?.postMessage({ type: 'cancelPrompt' }); }
-function handleClearChat() { chatRef.value?.clearMessages(); todos.value = []; plan.value = { steps: [] }; taskList.value = []; }
+function openSettings() { showSettings.value = true; vscode?.postMessage({ type: 'getSettings' }); }
+function handleModelChange() { vscode?.postMessage({ type: 'switchModel', model: currentModel.value }); }
+function cycleMode() { const modes = ['agent','plan','yolo']; const i = modes.indexOf(currentMode.value); currentMode.value = modes[(i+1)%modes.length]; vscode?.postMessage({ type: 'switchMode', mode: currentMode.value }); }
+function handleSettingsSave(config: any) {
+    vscode?.postMessage({ type: 'saveSettings', config });
+    showSettings.value = false;
+    if (config.defaultModel) currentModel.value = config.defaultModel;
+    if (config.locale) { setLocale(config.locale as 'zh-CN' | 'en'); connectingText.value = t('connecting'); }
+}
+function handleDownloadBinary() { vscode?.postMessage({ type: 'downloadBinary' }); }
+function handleCheckUpdate() { vscode?.postMessage({ type: 'checkUpdate' }); }
+function handleBrowseBinary() { vscode?.postMessage({ type: 'browseBinary' }); }
+function handleClearChat() { vscode?.postMessage({ type: 'clear', method: 'clear' }); chatRef.value?.clearMessages(); }
 function handleNewWindow() { vscode?.postMessage({ type: 'openNewWindow' }); }
-
-// Phase 4: 审批决策 → 发送到后端
-function handleApprovalDecision(decision: 'allow' | 'deny', remember: boolean) {
-    console.log('[Celest] approvalDecision:', decision, 'remember:', remember, 'id:', approvalId.value);
-    vscode?.postMessage({
-        type: 'approvalDecision',
-        approvalId: approvalId.value,
-        decision,
-        remember,
-    });
-    showApproval.value = false;
+function handleSend(text: string) {
+    // 拦截本地 UI 命令
+    const t = text.trim();
+    if (t === '/clear') { handleClearChat(); return; }
+    if (t === '/help' || t === '/?') { helpPanelRef.value?.show(); return; }
+    if (!tuiReady.value) return;
+    promptRunning.value = true;
+    requestSeq.value++;
+    chatRef.value?.addUserMessage(text);
+    chatRef.value?.showTyping();
+    vscode?.postMessage({ type: 'sendPrompt', prompt: text, seq: requestSeq.value, model: currentModel.value });
+}
+function handleStop() { vscode?.postMessage({ type: 'cancelPrompt' }); promptRunning.value = false; }
+function handleViewDiff(filePath: string, oldContent: string, newContent: string) { vscode?.postMessage({ type: 'viewDiff', filePath, oldContent, newContent }); }
+function handleApprovalDecision(details: { decision: string; remember: boolean }) {
+    vscode?.postMessage({ type: 'approvalDecision', approvalId: approvalId.value, decision: details.decision, remember: details.remember });
 }
 
-// Phase 4: View Diff → 转发到 extension host
-// Phase 4: View Diff → 转发到 extension host
-function handleViewDiff(filePath: string, oldContent?: string, newContent?: string) {
-    console.log('[Celest] viewDiff:', filePath);
-    vscode?.postMessage({
-        type: 'viewDiff',
-        filePath,
-        oldContent,
-        newContent,
-    });
+function initSplitWidth() {
+    const parentWidth = (splitRef.value?.parentElement as HTMLElement)?.clientWidth || 600;
+    const available = parentWidth - 6;
+    leftWidth.value = Math.floor(available * 0.65);
+    rightWidth.value = Math.floor(available * 0.35);
 }
-
+function startResize(e: MouseEvent) {
+    isResizing.value = true;
+    const startX = e.clientX, startLeft = leftWidth.value, startRight = rightWidth.value;
+    const onMove = (ev: MouseEvent) => {
+        const dx = ev.clientX - startX;
+        let newLeft = Math.max(150, startLeft + dx); let newRight = startRight - dx;
+        const total = (splitRef.value?.clientWidth || 600) - 6;
+        if (newRight < 150) { newRight = 150; newLeft = total - 150; }
+        leftWidth.value = newLeft; rightWidth.value = newRight;
+    };
+    const onUp = () => { isResizing.value = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+}
 function parseTodoWrite(raw: unknown) {
     try {
         let obj: any = null;
         if (typeof raw === 'string') {
             const text = raw as string;
             const start = text.indexOf('{');
-            if (start >= 0) {
-                try { obj = JSON.parse(text.slice(start)); } catch { /* */ }
-            }
+            if (start >= 0) { try { obj = JSON.parse(text.slice(start)); } catch { /* */ } }
             if (!obj) { try { obj = JSON.parse(text); } catch { /* */ } }
-        } else {
-            obj = raw;
-        }
-        if (!obj) return;
-        let list = obj.todos;
-        if (!Array.isArray(list)) list = obj.items;
-        if (!Array.isArray(list)) list = obj.tasks;
-        if (Array.isArray(list) && list.length > 0) {
-            todos.value = list.map((t: any) => ({
-                content: String(t.content || t.task || t.title || t.name || t.description || ''),
-                status: ((t.status || t.state || 'pending') as any),
+        } else { obj = raw; }
+        if (!obj || (!Array.isArray(obj.todos) && !Array.isArray(obj))) return;
+        const list = Array.isArray(obj.todos) ? obj.todos : obj;
+        if (Array.isArray(list)) {
+            todos.value = list.filter((t: any) => t && typeof t === 'object').map((t: any) => ({
+                content: String(t.content || ''),
+                status: String(t.status || 'pending'),
             }));
-            console.log('[Celest] todos updated:', todos.value.length);
         }
-    } catch (e) { console.log('[Celest] parseTodoWrite error:', e); }
+    } catch { /* */ }
 }
-
 function parseUpdatePlan(raw: unknown) {
     try {
         let obj: any = null;
         if (typeof raw === 'string') {
             const text = raw as string;
             const start = text.indexOf('{');
-            if (start >= 0) {
-                try { obj = JSON.parse(text.slice(start)); } catch { /* */ }
-            }
+            if (start >= 0) { try { obj = JSON.parse(text.slice(start)); } catch { /* */ } }
             if (!obj) { try { obj = JSON.parse(text); } catch { /* */ } }
-        } else {
-            obj = raw;
-        }
+        } else { obj = raw; }
         if (!obj) return;
         let expl = '';
         if (typeof obj.explanation === 'string') expl = obj.explanation;
@@ -160,27 +240,16 @@ function parseUpdatePlan(raw: unknown) {
                     status: ((s.status || s.state || 'pending') as any),
                 })),
             };
-            console.log('[Celest] plan updated:', plan.value.steps.length);
         }
-    } catch (e) { console.log('[Celest] parseUpdatePlan error:', e); }
+    } catch { /* */ }
 }
 
 onMounted(async () => {
     await nextTick(); await nextTick(); initSplitWidth();
-    if (splitRef.value) {
-        new ResizeObserver(() => initSplitWidth()).observe(splitRef.value);
-    }
+    if (splitRef.value) { new ResizeObserver(() => initSplitWidth()).observe(splitRef.value); }
     window.addEventListener('resize', initSplitWidth);
-
-    // Phase 4: tuiReady 变为 true 时 splitRef 重新渲染，需重新初始化分栏
     watch(tuiReady, async (ready) => {
-        if (ready) {
-            await nextTick(); await nextTick();
-            initSplitWidth();
-            if (splitRef.value) {
-                new ResizeObserver(() => initSplitWidth()).observe(splitRef.value);
-            }
-        }
+        if (ready) { await nextTick(); await nextTick(); initSplitWidth(); if (splitRef.value) { new ResizeObserver(() => initSplitWidth()).observe(splitRef.value); } }
     });
 
     window.addEventListener('message', (e: MessageEvent) => {
@@ -188,32 +257,31 @@ onMounted(async () => {
         switch (msg.type) {
         case 'tuiReasoning': chatRef.value?.appendReasoning(msg.reasoning); break;
         case 'tuiReasoningDone': chatRef.value?.markReasoningDone(); break;
-        case 'tuiText': stopTypewriter(); chatRef.value?.hideTyping(); startTypewriter(msg.text); break;
+        // 流式文本：隐藏思考指示器，追加到消息
+        case 'tuiText': chatRef.value?.hideTyping(); chatRef.value?.appendText(msg.text); break;
         case 'tuiToolCall': chatRef.value?.addToolCall(msg.toolCall?.name || 'tool', msg.toolCall?.arguments, msg.toolCall?.callId); break;
         case 'tuiToolResult': {
             const { callId, output, status, toolName } = msg.toolResult || {};
-            const tn = toolName || '';
-            const o = output;
+            const tn = toolName || ''; const o = output;
             chatRef.value?.updateToolResult(callId || '', o ?? '', status || 'success');
-            if (tn === 'todo_write' || tn === 'checklist_write' || tn === 'checklist_add' || tn === 'checklist_update' || tn === 'todo_add' || tn === 'todo_update') { parseTodoWrite(o); }
-            if (tn === 'update_plan') { parseUpdatePlan(o); }
-            if (tn && (tn.includes('todo') || tn.includes('checklist') || tn === 'update_plan')) { console.log('[Celest] toolResult toolName:', tn, 'output type:', typeof o, 'raw:', String(o).slice(0,200)); } break; }
+            if (tn === 'todo_write' || tn === 'checklist_write' || tn === 'checklist_add' || tn === 'checklist_update') parseTodoWrite(o);
+            if (tn === 'update_plan') parseUpdatePlan(o);
+            break;
+        }
         case 'tuiToolProgress': chatRef.value?.updateToolResult(msg.toolResult?.callId || '', msg.toolResult?.output ?? '', 'pending'); break;
-        case 'promptStarted': promptRunning.value = true; resetPromptWatchdog(); turnCount.value++; break;
-        case 'promptEnded': promptRunning.value = false; if (promptWatchdog) { clearTimeout(promptWatchdog); promptWatchdog = null; } if (!typewriterTimer) chatRef.value?.hideTyping(); break;
-        case 'promptError': promptRunning.value = false; if (promptWatchdog) { clearTimeout(promptWatchdog); promptWatchdog = null; } stopTypewriter(); chatRef.value?.hideTyping(); chatRef.value?.appendText(`\n\n⚠️ Error: ${msg.error}`); break;
+        case 'promptStarted': promptRunning.value = true; turnCount.value++; break;
+        case 'promptEnded': promptRunning.value = false; chatRef.value?.hideTyping(); break;
+        case 'promptError': promptRunning.value = false; chatRef.value?.hideTyping(); chatRef.value?.appendText(`\n\n⚠️ Error: ${msg.error}`); break;
         case 'fileList': fileList.value = Array.isArray(msg.files) ? msg.files : []; break;
         case 'addAtMention': inputBoxRef.value?.insertAtCursor('@' + (msg.path || '') + ' '); break;
         case 'pasteImageResult': inputBoxRef.value?.replaceText('@[' + (msg.fileName || '') + '] ', '@' + (msg.filePath || '') + ' '); break;
-        case 'tuiEvent': if (msg.event === 'sessionUpdate' && msg.update?.content?.text) { chatRef.value?.hideTyping(); stopTypewriter(); startTypewriter(msg.update.content.text); } break;
         case 'clearChat': chatRef.value?.clearMessages(); break;
         case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; break;
         case 'tuiConnected': tuiReady.value = true; sessionId.value = msg.sessionId || ''; vscode?.postMessage({ type: 'getTasks' }); break;
-        case 'tuiStatus': if (msg.status === 'restarting') tuiReady.value = false; else if (msg.status === 'connected') tuiReady.value = true; break;
+        case 'tuiStatus': tuiReady.value = msg.status === 'connected'; break;
         case 'tasksList': taskList.value = Array.isArray(msg.tasks) ? msg.tasks : []; tasksLoading.value = false; break;
-        case 'tuiCrashed': tuiReady.value = false; promptRunning.value = false; if (promptWatchdog) { clearTimeout(promptWatchdog); promptWatchdog = null; } stopTypewriter(); chatRef.value?.appendText(`\n\n⚠️ TUI crashed: ${msg.message || 'Unknown'}`); break;
+        case 'tuiCrashed': tuiReady.value = false; promptRunning.value = false; chatRef.value?.hideTyping(); chatRef.value?.appendText(`\n\n⚠️ TUI crashed: ${msg.message || 'Unknown'}`); break;
 
-        // Phase 4: 审批消息
         case 'tuiApprovalRequired':
             approvalId.value = msg.approvalId || '';
             approvalToolName.value = msg.toolName || '';
@@ -222,16 +290,29 @@ onMounted(async () => {
             approvalImpact.value = msg.impact || '';
             approvalParams.value = msg.params || '';
             showApproval.value = true;
-            console.log('[Celest] approval required:', approvalToolName.value, '—', approvalDescription.value);
             break;
-        case 'tuiApprovalDecided':
-            showApproval.value = false;
-            console.log('[Celest] approval decided:', msg.approvalId, msg.decision);
+        case 'tuiApprovalDecided': showApproval.value = false; break;
+        case 'tuiApprovalTimeout': showApproval.value = false; break;
+
+        case 'openSettings': openSettings(); break;
+        case 'settingsData':
+            settingsConfig.value = msg.config || settingsConfig.value;
+            apiKeyStored.value = msg.apiKeyStored ?? false;
+            tuiVersion.value = msg.tuiVersion || '';
+            extVersion.value = msg.extVersion || '0.1.0';
+            nodeVersion.value = msg.nodeVersion || '';
+            vscodeVersion.value = msg.vscodeVersion || '';
+            if (msg.config?.defaultModel) currentModel.value = msg.config.defaultModel;
+            if (msg.config?.locale) { setLocale(msg.config.locale as 'zh-CN' | 'en'); connectingText.value = t('connecting'); }
             break;
-        case 'tuiApprovalTimeout':
-            showApproval.value = false;
-            console.log('[Celest] approval timeout:', msg.approvalId);
-            break;
+        case 'settingsSaved': break;
+        case 'modelSwitched': currentModel.value = msg.model || currentModel.value; break;
+        case 'modeSwitched': currentMode.value = msg.mode || currentMode.value; break;
+        case 'updateCheckResult': break; // 后端已弹窗通知
+        case 'downloadProgress': break;
+        case 'downloadComplete': break; // 后端已弹窗通知
+        case 'downloadFailed': break;  // 后端已弹窗通知
+        case 'localeChanged': setLocale(msg.locale as 'zh-CN' | 'en'); connectingText.value = t('connecting'); break;
     }});
     vscode?.postMessage({ type: 'ready' }); vscode?.postMessage({ type: 'getFiles' });
 });
@@ -240,9 +321,12 @@ onMounted(async () => {
 <style scoped>
 .celest-app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .app-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border); font-size: 14px; font-weight: 600; flex-shrink: 0; }
-.header-actions { display: flex; gap: 2px; }
+.app-title { font-size: 14px; }
+.header-actions { display: flex; gap: 4px; align-items: center; }
 .header-btn { background: none; border: none; color: var(--vscode-descriptionForeground); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 4px; line-height: 1; }
 .header-btn:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.model-select { padding: 3px 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 4px; font-size: 11px; cursor: pointer; max-width: 130px; }
+.model-select:focus { outline: none; border-color: var(--vscode-focusBorder); }
 .main-split { display: flex; flex: 1; overflow: hidden; min-height: 0; }
 .split-left { overflow-y: auto; min-width: 0; }
 .split-right { overflow-y: auto; border-left: 1px solid var(--vscode-sideBarSectionHeader-border); border-radius: 6px; }
@@ -252,11 +336,11 @@ onMounted(async () => {
 .right-panel:last-child { border-bottom: none; }
 .panel-header { display: flex; align-items: center; gap: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; cursor: pointer; user-select: none; background: var(--vscode-sideBar-background); }
 .panel-header:hover { background: var(--vscode-list-hoverBackground); }
+.panel-arrow { font-size: 10px; width: 12px; flex-shrink: 0; color: var(--vscode-descriptionForeground); }
+.panel-label { font-size: 12px; font-weight: 600; }
 .panel-body { max-height: 300px; overflow-y: auto; }
 .panel-badge { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 10px; padding: 0 5px; border-radius: 8px; min-width: 16px; text-align: center; line-height: 15px; margin-left: auto; }
-.tasks-placeholder { padding: 16px 12px; font-size: 12px; color: var(--vscode-descriptionForeground); text-align: center; font-style: italic; }
 .chat-area { flex: 1; overflow-y: auto; }
-
 .input-area { flex-shrink: 0; border-top: 1px solid var(--vscode-sideBarSectionHeader-border); }
 .connecting-banner { padding: 8px 12px; font-size: 12px; text-align: center; color: var(--vscode-descriptionForeground); background: var(--vscode-textBlockQuote-background); }
 </style>

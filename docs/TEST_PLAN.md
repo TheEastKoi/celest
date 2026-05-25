@@ -331,3 +331,166 @@ git diff HEAD~1          # 查看改动细节
 
 **最后更新:** 2026-05-20  
 **配套脚本:** `test/phase2_verify.py`
+
+---
+
+## 九、Phase 5 测试策略 (2026-05-24)
+
+### 9.1 Phase 5 功能 × 测试矩阵
+
+| 功能 | Level 1 静态 | Level 2 单元 | Level 3 组件 | Level 4 E2E |
+|------|:-----------:|:-----------:|:-----------:|:----------:|
+| 5.1 SettingsPanel 设置面板 | ✅ regex | ✅ | ✅ | ✅ |
+| 5.2 模型下拉选择器 | ✅ regex | ✅ | — | ✅ |
+| 5.3 API Key SecretStorage | ✅ regex | ✅ | — | ✅ |
+| 5.4 二进制自动下载 | ✅ regex | ✅ | — | ✅ |
+| 5.5 i18n 国际化 | ✅ regex | ✅ | ✅ | ✅ |
+| 5.6 配置持久化 | ✅ regex | ✅ | — | ✅ |
+| 5.7 Mode 切换 (agent/plan/yolo) | ✅ regex | ✅ | ✅ | ✅ |
+| 5.8 Runtime Info | ✅ regex | ✅ | — | ✅ |
+
+### 9.2 Level 1 — 静态代码模式检查
+
+新增文件检查（Phase 5 新增模块）:
+
+| # | 检查项 | 文件 | 关键正则 |
+|---|--------|------|---------|
+| P5-1 | SecretStore 封装 | secretStorage.ts | `class SecretStore` / `getApiKey` / `setApiKey` / `deleteApiKey` |
+| P5-2 | BinaryDownloader | binaryDownloader.ts | `class BinaryDownloader` / `download()` / `getPlatformBinaryName` / `getLatestRelease` |
+| P5-3 | SettingsPanel 组件 | SettingsPanel.vue | `<SettingsPanel` / `activeTab` / `handleSave` / `general` / `model` / `about` |
+| P5-4 | i18n 模块 | i18n.ts | `setLocale` / `t(` / `zh-CN` / `en` / `getAvailableModels` |
+| P5-5 | 模型配置接口 | tuiProcessManager.ts | `SessionConfig` / `setConfig(` / `getConfig()` / `updateThreadModel(` |
+| P5-6 | Runtime Info API | tuiProcessManager.ts | `getRuntimeInfo(` / `RuntimeInfo` / `runtime/info` |
+| P5-7 | 配置项扩展 | package.json | `celest.locale` / `celest.provider` / `celest.reasoningEffort` |
+| P5-8 | 模型选择器 UI | App.vue | `model-select` / `handleModelChange` / `switchModel` |
+| P5-9 | Settings 消息路由 | chatViewProvider.ts | `getSettings` / `saveSettings` / `switchModel` / `downloadBinary` / `browseBinary` |
+| P5-10 | SecretStore 初始化 | extension.ts | `initSecretStore` / `getSecretStore` / `onDidChangeConfiguration` |
+
+### 9.3 Level 2 — 单元测试建议
+
+```typescript
+// secretStorage.test.ts (新增)
+describe('SecretStore', () => {
+    it('should store and retrieve API key');
+    it('should return undefined for unset key');
+    it('should delete key');
+    it('should store and retrieve provider');
+});
+
+// tuiProcessManager.test.ts (新增 Phase 5)
+describe('Phase 5: SessionConfig', () => {
+    it('should default to deepseek-v4-flash model');
+    it('should update config via setConfig()');
+    it('should return copy via getConfig()');
+    it('should pass model to CreateThreadRequest');
+    it('should pass DEEPSEEK_API_KEY env var when configured');
+});
+
+describe('Phase 5: updateThreadModel', () => {
+    it('should PATCH /v1/threads/{id} with model');
+    it('should return false when TUI not connected');
+});
+
+describe('Phase 5: getRuntimeInfo', () => {
+    it('should GET /v1/runtime/info');
+    it('should return null when TUI not connected');
+});
+
+// binaryDownloader.test.ts (新增)
+describe('BinaryDownloader', () => {
+    it('should detect platform correctly');
+    it('should generate correct binary name for platform');
+    it('should return local path when binary exists');
+    it('should report hasLocalBinary() correctly');
+});
+```
+
+### 9.4 Level 3 — Vue 组件测试建议
+
+```typescript
+// SettingsPanel.test.ts (新增)
+describe('SettingsPanel', () => {
+    it('should render three tabs: General, Model, About');
+    it('should default to General tab');
+    it('should switch tab on click');
+    it('should emit close on overlay click');
+    it('should emit save with config data');
+    it('should toggle API key visibility');
+    it('should show key status (set/unset)');
+    it('should display available models in dropdown');
+    it('should display reasoning effort options');
+    it('should display version info in About tab');
+    it('should display download progress');
+});
+
+// App.vue (新增 Phase 5)
+describe('App — Model Selector', () => {
+    it('should display model dropdown when TUI connected');
+    it('should post switchModel on selection change');
+    it('should update currentModel on modelSwitched message');
+});
+
+describe('App — Settings Integration', () => {
+    it('should open SettingsPanel on openSettings message');
+    it('should request settings on panel open');
+    it('should forward saveSettings to backend');
+    it('should update locale on localeChanged message');
+});
+
+// i18n.ts (新增)
+describe('i18n', () => {
+    it('should return Chinese text for zh-CN locale');
+    it('should return English text for en locale');
+    it('should fallback to key when translation missing');
+    it('should fallback to English when Chinese missing');
+    it('should list available models');
+    it('should list reasoning effort options');
+});
+```
+
+### 9.5 Level 4 — E2E 测试 prompt 汇总
+
+> 完整用例见 `docs/INTEGRATION_TEST.md` Phase 5 章节。
+
+| # | 测试项 | 测试 prompt | 验证方法 |
+|---|--------|-------------|---------|
+| E1 | 设置面板打开/关闭 | — (UI 操作) | 点击 ⚙ 按钮，检查弹窗 |
+| E2 | Tab 切换 | — (UI 操作) | 点击"模型"/"关于"Tab |
+| E3 | 模型切换验证 | `"你是什么模型？"` | Output 日志 `model=deepseek-v4-pro` |
+| E4 | API Key 保存 | — (UI 操作) | 重启 VS Code 后 Key 仍存在 |
+| E5 | API Key 传递 | — (UI 操作) | 日志 `passing DEEPSEEK_API_KEY via env` |
+| E6 | 二进制下载 | — (UI 操作) | 日志 `[BinaryDownloader] downloading` |
+| E7 | 语言切换 | — (UI 操作) | 面板标题变 "Celest Settings" |
+| E8 | 配置持久化 | — (UI 操作) | 重启后模型/语言保持 |
+| E9 | Runtime Info | — (UI 操作) | 关于 Tab 显示 TUI 版本号 |
+| E10 | Thread 兼容性 | `"hello"` → 切换 → `"你是什么模型？"` | 回复显示切换后的模型 |
+| E11 | 完整配置 E2E | `"hello"` | 全流程无报错 |
+
+### 9.6 测试执行顺序
+
+```
+1. Level 1 静态检查（新增 10 项文件/代码模式检查）
+2. Level 2 单元测试（secretStorage + tuiProcessManager Phase 5 + binaryDownloader）
+3. 构建验证（node build.mjs → 0 退出码）
+4. Level 4 手动 E2E（按 INTEGRATION_TEST.md Phase 5 章节逐项执行）
+   - 先测 UI 类（设置面板 Tab/开关/语言）
+   - 再测数据流类（模型切换/API Key/配置持久化）
+   - 最后测端到端（完整配置流程）
+```
+
+### 9.7 Phase 5 通过的判定标准
+
+| 条件 | 阈值 |
+|------|------|
+| 新增文件 | 4 个必需文件存在（secretStorage.ts / binaryDownloader.ts / SettingsPanel.vue / i18n.ts） |
+| 修改文件 | 5 个文件含 Phase 5 代码（tuiProcessManager / chatViewProvider / extension / App.vue / package.json） |
+| 构建产物 | extension.js > 50 KB（含新增模块），GUI > 250 KB（含 SettingsPanel） |
+| 代码模式 | 10 项静态检查全部通过 |
+| 配置项 | package.json 含 locale / provider / reasoningEffort 3 项 |
+
+**全部通过 → Phase 5 验证成功 ✅**
+
+---
+
+**最后更新:** 2026-05-24  
+**配套文档:** `INTEGRATION_TEST.md` (Phase 5 章节)

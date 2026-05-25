@@ -5,22 +5,40 @@ import * as fs from 'node:fs';
 import * as net from 'node:net';
 import { logger } from './logger';
 
+/** Phase 5: 会话配置 */
+export interface SessionConfig {
+    model: string;
+    mode?: string;
+    provider?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    reasoningEffort?: string;
+}
+
+/** Phase 5: Runtime info 响应 */
+export interface RuntimeInfo {
+    bind_host: string;
+    port: number;
+    auth_required: boolean;
+    version: string;
+}
+
 /** Phase 4: 审批请求事件 */
 export interface ApprovalRequiredEvent {
-    id: string;              // approval_id（也是 tool_call item id）
-    tool_name: string;       // 工具名，如 "exec_shell", "write_file"
-    description: string;     // 审批描述，如 "Run shell command: npm install"
+    id: string;
+    tool_name: string;
+    description: string;
     threadId: string;
     turnId: string;
 }
 
 /** 原生运行时事件（从 /v1/threads/{id}/events SSE） */
 export interface RuntimeEvent {
-    event: string;           // "item.delta" | "item.started" | "item.completed" | ... | "approval.required"
-    kind?: string;           // item kind: "agent_reasoning" | "agent_message" | "tool_call" | ...
-    toolName?: string;       // 工具真实名称（如 "web_search", "exec_shell"）
-    delta?: string;          // 增量文本 / 审批描述
-    itemId?: string;         // item id / approval_id
+    event: string;
+    kind?: string;
+    toolName?: string;
+    delta?: string;
+    itemId?: string;
     threadId?: string;
     turnId?: string;
 }
@@ -29,7 +47,7 @@ export interface RuntimeEvent {
 export interface ThreadSummary {
     id: string;
     title?: string;
-    created_at: string;   // ISO 8601 e.g. "2026-05-21T08:30:00Z"
+    created_at: string;
     updated_at: string;
     model?: string;
     mode?: string;
@@ -38,11 +56,12 @@ export interface ThreadSummary {
 }
 
 /**
- * TUI 进程管理器 — HTTP/SSE Threads 版本 (DeepSeek-TUI 0.8.40+)
+ * TUI 进程管理器 — HTTP/SSE Threads 版本 (CodeWhale 0.8.44+)
  *
- * 启动 deepseek-tui serve --http，通过 Threads API 发送 prompt，
+ * 启动 codewhale-tui serve --http，通过 Threads API 发送 prompt，
  * 监听 GET /v1/threads/{id}/events 获取完整事件（含 reasoning）。
  * Phase 4: 支持审批流程（approval.required → decideApproval → approval.decided）
+ * Phase 5: 支持模型切换（per-thread model + PATCH update）
  */
 export class TuiProcessManager {
     private process?: cp.ChildProcess;
@@ -53,7 +72,6 @@ export class TuiProcessManager {
     private _retryDelay = 2000;
     private _disposed = false;
     private _currentAbort?: AbortController;
-    // Phase 3.x: 保存 threadId/turnId 用于优雅 cancel
     private _currentThreadId?: string;
     private _currentTurnId?: string;
 
@@ -61,18 +79,32 @@ export class TuiProcessManager {
     readonly onEvent = this._onEvent.event;
     private _onStatusChange = new vscode.EventEmitter<{ status: string }>();
     readonly onStatusChange = this._onStatusChange.event;
-    // Phase 4: 审批事件
     private _onApprovalRequired = new vscode.EventEmitter<ApprovalRequiredEvent>();
     readonly onApprovalRequired = this._onApprovalRequired.event;
-    private _autoApprove = false;  // false = 需要用户审批，true = 自动批准
+    private _autoApprove = false;
+
+    /** Phase 5: 当前会话配置 */
+    private _config: SessionConfig = {
+        model: 'deepseek-v4-flash',
+    };
 
     constructor(private context: vscode.ExtensionContext) {}
 
     get port(): number { return this._port; }
     get connected(): boolean { return this._started && this.process?.exitCode === null; }
-    /** Phase 4: 动态设置是否自动批准（会话级批准后设为 true） */
     set autoApprove(v: boolean) { this._autoApprove = v; }
     get autoApprove(): boolean { return this._autoApprove; }
+
+    /** Phase 5: 设置会话配置 */
+    setConfig(config: Partial<SessionConfig>): void {
+        this._config = { ...this._config, ...config };
+        logger.info('[Config] updated:', JSON.stringify(this._config));
+    }
+
+    /** Phase 5: 获取当前配置 */
+    getConfig(): SessionConfig {
+        return { ...this._config };
+    }
 
     async start(): Promise<void> {
         this._disposed = false;
@@ -91,36 +123,40 @@ export class TuiProcessManager {
         const base = `http://127.0.0.1:${this._port}/v1`;
 
         try {
-            // 1. 创建 thread（Phase 4: auto_approve 改为可配置，默认 false）
+            // Phase 5: 使用配置中的 model
+            const model = this._config.model || 'deepseek-v4-flash';
+            const mode = this._config.mode || 'agent';
+
             const tResp = await fetch(`${base}/threads`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    model: 'deepseek-v4-flash',
-                    mode: 'agent',
+                    model,
+                    mode,
                     workspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '.',
                     allow_shell: true,
-                    trust_mode: false,                  // Phase 4: 关闭 trust mode，由审批流程控制
-                    auto_approve: this._autoApprove,    // Phase 4: 可配置（Allow Session 后为 true）
+                    trust_mode: false,
+                    auto_approve: this._autoApprove,
                 }),
                 signal: controller.signal,
             });
             const thread = await tResp.json() as any;
             const threadId: string = thread.id;
             this._currentThreadId = threadId;
-            logger.info(`[Thread] created: ${threadId} auto_approve=${this._autoApprove} trust_mode=false`);
+            logger.info(`[Thread] created: ${threadId} model=${model} auto_approve=${this._autoApprove}`);
 
-            // 2. 发送 prompt（不阻塞，立即返回）
             const turnPromise = fetch(`${base}/threads/${threadId}/turns`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: text, auto_approve: this._autoApprove }),
+                body: JSON.stringify({
+                    prompt: text,
+                    model,
+                    auto_approve: this._autoApprove,
+                }),
                 signal: controller.signal,
             }).then(r => r.json() as any);
 
-            // 3. 监听事件流（并行）
             const eventsPromise = this.streamEvents(threadId, controller.signal);
-
             const [turn] = await Promise.all([turnPromise, eventsPromise]);
             this._currentTurnId = turn?.id;
             logger.info(`[Thread] turn: ${turn?.id} status=${turn?.status}`);
@@ -135,6 +171,41 @@ export class TuiProcessManager {
             if (this._currentAbort === controller) {
                 this._currentAbort = undefined;
             }
+        }
+    }
+
+    /** Phase 5: 更新 thread 配置（PATCH /v1/threads/{id}） */
+    async updateThreadConfig(threadId: string, fields: Record<string, any>): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const base = `http://127.0.0.1:${this._port}/v1`;
+            const resp = await fetch(`${base}/threads/${threadId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(fields),
+            });
+            if (resp.ok) {
+                logger.info(`[Thread] config updated for ${threadId}: ${JSON.stringify(fields)}`);
+                return true;
+            }
+            logger.warn(`[Thread] config update failed: HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) {
+            logger.error(`[Thread] model update error: ${err.message}`);
+            return false;
+        }
+    }
+
+    /** Phase 5: 获取运行时信息 (GET /v1/runtime/info) */
+    async getRuntimeInfo(): Promise<RuntimeInfo | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/runtime/info`);
+            if (!resp.ok) return null;
+            return await resp.json() as RuntimeInfo;
+        } catch (err: any) {
+            logger.warn('[RuntimeInfo] fetch failed:', err.message);
+            return null;
         }
     }
 
@@ -167,7 +238,7 @@ export class TuiProcessManager {
 
     /** 列出后台任务 (GET /v1/tasks) */
     async listTasks(): Promise<any[]> {
-        if (!this._started) { logger.warn('[Tasks] TUI not started, returning empty'); return []; }
+        if (!this._started) { logger.info('[Tasks] TUI not started yet, returning empty'); return []; }
         try {
             const resp = await fetch(`http://127.0.0.1:${this._port}/v1/tasks?limit=50`);
             if (!resp.ok) { logger.warn(`[Tasks] HTTP ${resp.status}`); return []; }
@@ -178,10 +249,9 @@ export class TuiProcessManager {
         } catch (err: any) { logger.warn(`[Tasks] listTasks error: ${err.message}`); return []; }
     }
 
-    /** 取消当前生成 — 优先使用 HTTP interrupt API，失败时 fallback abort */
+    /** 取消当前生成 */
     cancel(): void {
         logger.info('[Thread] cancelling...');
-        // 1. 尝试 HTTP interrupt（优雅中断）
         if (this._currentThreadId && this._currentTurnId) {
             const url = `http://127.0.0.1:${this._port}/v1/threads/${this._currentThreadId}/turns/${this._currentTurnId}/interrupt`;
             fetch(url, { method: 'POST' })
@@ -191,7 +261,6 @@ export class TuiProcessManager {
                 })
                 .catch(e => logger.info('[Thread] interrupt request failed:', e.message));
         }
-        // 2. Fallback: abort SSE connection
         this._currentAbort?.abort();
     }
 
@@ -202,7 +271,6 @@ export class TuiProcessManager {
             logger.warn('[Approval] TUI not connected, cannot decide');
             return false;
         }
-        // 用户点击"信任会话"时立即记录意图，即使当前审批已超时也保证后续生效
         if (remember && decision === 'allow') {
             this._autoApprove = true;
             logger.info('[Approval] session trusted (autoApprove=true for future turns)');
@@ -214,12 +282,10 @@ export class TuiProcessManager {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ decision, remember }),
             });
-            // 404 = 审批已过期或已被处理（超时自动 deny）
             if (resp.status === 404) {
                 logger.warn(`[Approval] ${approvalId} already resolved (timeout or duplicate)`);
                 return false;
             }
-            // 200 才尝试解析 JSON，非 200 尝试读 text
             if (!resp.ok) {
                 const text = await resp.text().catch(() => '');
                 logger.warn(`[Approval] decision HTTP ${resp.status}: ${text.slice(0, 200)}`);
@@ -253,7 +319,6 @@ export class TuiProcessManager {
 
     // ── 内部实现 ────────────────────────────────────────────
 
-    /** 监听 /v1/threads/{id}/events SSE 流，解析原始事件 */
     private async streamEvents(threadId: string, signal: AbortSignal): Promise<void> {
         const url = `http://127.0.0.1:${this._port}/v1/threads/${threadId}/events?since_seq=0`;
         logger.info(`[SSE] connecting to ${url}`);
@@ -293,14 +358,12 @@ export class TuiProcessManager {
         }
     }
 
-    /** 将单个原生事件转换为 RuntimeEvent 并发射 */
     private dispatchRawEvent(eventName: string, data: string): void {
         let payload: any = {};
         try { payload = JSON.parse(data); } catch { return; }
 
         // Phase 4: 审批事件优先处理
         if (eventName === 'approval.required') {
-            // SSE data 可能是外层包装 {"payload":{...}} 或直接内层 {...}
             const inner = (payload.payload && typeof payload.payload === 'object' && !Array.isArray(payload.payload))
                 ? payload.payload : payload;
             logger.info(`[SSE] approval.required tool=${inner.tool_name} desc="${String(inner.description || '').slice(0, 60)}"`);
@@ -343,7 +406,6 @@ export class TuiProcessManager {
         const item = p.item || {};
         const kind: string = p.kind || item.kind || '';
 
-        // DEBUG
         const delta = (p.delta || '').slice(0, 40);
         if (delta || kind) {
             logger.info(`[SSE] event=${eventName} kind=${kind} delta="${delta}"`);
@@ -375,7 +437,6 @@ export class TuiProcessManager {
                 } else if (kind === 'agent_message') {
                     this._onEvent.fire({ event: 'messageDelta', delta: d, kind });
                 } else if (kind === 'tool_call') {
-                    // Phase 4 fix: 传递 itemId 以便前端匹配 tool card
                     this._onEvent.fire({ event: 'toolProgress', delta: d, kind, itemId: item.id });
                 }
                 break;
@@ -409,13 +470,29 @@ export class TuiProcessManager {
     }
 
     private async startInternal(): Promise<void> {
-        const binPath = this.findBinary();
-        if (!fs.existsSync(binPath)) {
-            throw new Error(`deepseek-tui binary not found: ${binPath}`);
+        const config = vscode.workspace.getConfiguration('celest');
+        const binPath = config.get<string>('binaryPath') || this.findBinaryFallback();
+
+        if (!binPath || !fs.existsSync(binPath)) {
+            const autoDownload = config.get<boolean>('autoDownloadBinary') ?? true;
+            if (autoDownload) {
+                throw new Error('codewhale-tui binary not found. Set celest.binaryPath in VS Code settings.');
+            }
+            throw new Error(`codewhale binary not found: ${binPath}`);
         }
 
-        this._port = await findAvailablePort(7878);
-        logger.info(`Starting deepseek-tui HTTP on port ${this._port}:`, binPath);
+        this._port = await findAvailablePort(8787);
+        logger.info(`Starting codewhale-tui serve on port ${this._port}:`, binPath);
+
+        // Phase 5: 传递 API Key 环境变量
+        const env: Record<string, string> = { ...process.env as Record<string, string> };
+        if (this._config.apiKey) {
+            env.DEEPSEEK_API_KEY = this._config.apiKey;
+            logger.info('[Config] passing DEEPSEEK_API_KEY via env');
+        }
+        if (this._config.baseUrl) {
+            env.DEEPSEEK_BASE_URL = this._config.baseUrl;
+        }
 
         this.process = cp.spawn(binPath, [
             'serve', '--http',
@@ -425,6 +502,7 @@ export class TuiProcessManager {
         ], {
             stdio: ['ignore', 'pipe', 'pipe'],
             cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd(),
+            env,
         });
 
         let stderrLog = '';
@@ -497,16 +575,14 @@ export class TuiProcessManager {
         }
     }
 
-    private findBinary(): string {
-        const configPath = vscode.workspace.getConfiguration('celest').get<string>('binaryPath');
-        if (configPath && fs.existsSync(configPath)) return configPath;
-        if (process.platform !== 'win32') return 'deepseek-tui';
+    private findBinaryFallback(): string | null {
+        if (process.platform !== 'win32') return 'codewhale-tui';
         const candidates = [
-            path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'release', 'deepseek-tui.exe'),
-            path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'debug', 'deepseek-tui.exe'),
+            path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'release', 'codewhale-tui.exe'),
+            path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'debug', 'codewhale-tui.exe'),
         ];
         for (const c of candidates) if (fs.existsSync(c)) return c;
-        throw new Error('deepseek-tui binary not found.');
+        return null;
     }
 }
 

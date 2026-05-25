@@ -149,16 +149,54 @@
 - [x] 空状态统一中文风格（与 Work/Plan 对齐）
 - [x] `/clear` 和 `newSession` 同步清空三个面板
 
-## Phase 5: 配置 + 模型 ⏳ (未开始)
+## Phase 5: 配置 + 模型 + 国际化 ✅ (2026-05-24)
 
-**目标:** 设置面板 + 模型切换
+**目标:** 设置面板 + 模型切换 + API Key 安全存储 + 二进制自动下载 + i18n
 
-- [ ] SettingsPanel.vue — 配置界面
-- [ ] API Key 安全存储（VS Code SecretStorage）
-- [ ] 模型列表 → 下拉选择器
-- [ ] 模型切换（RPC: app/config/set）
-- [ ] 二进制自动下载（首次使用时从 GitHub Release 下载）
-- [ ] **i18n 国际化**：`celest.locale` 配置项 (`"zh-CN"` / `"en"`) → 控制 UI 文案（按钮、标签、提示），工具描述保持 TUI 端原样透传
+### 5.1 核心调研
+- [x] TUI REST API 审计：确认不存在 `app/config/set` RPC，改用 thread-level model + PATCH
+- [x] 模型切换方案：通过 `CreateThreadRequest.model` / `StartTurnRequest.model` / `PATCH /v1/threads/{id}`
+- [x] API Key 方案：VS Code SecretStorage + 环境变量 `DEEPSEEK_API_KEY`
+
+### 5.2 新增文件
+- [x] `src/secretStorage.ts` — SecretStore 类，封装 VS Code SecretStorage API
+- [x] `src/binaryDownloader.ts` — BinaryDownloader 类，GitHub Release 下载 + 流式进度
+- [x] `gui/src/components/SettingsPanel.vue` — 设置面板（通用/模型/关于三 Tab）
+- [x] `gui/src/i18n.ts` — 轻量 i18n 模块（zh-CN / en），零依赖
+
+### 5.3 模型 + 模式切换
+- [x] `tuiProcessManager.ts` — `SessionConfig` 接口 (model/mode) + `setConfig()` / `getConfig()` / `updateThreadConfig()`
+- [x] Mode 切换：ContextBar 点击循环 agent/plan/yolo，PATCH 同步当前线程
+- [x] yolo 模式自动设置 `autoApprove=true`，跳审；agent/plan 恢复审批
+- [x] `sendPrompt()` 从 `config.model` 读取模型名（不再硬编码）
+- [x] `App.vue` — 头部模型下拉选择器 + `switchModel` 消息
+- [x] `chatViewProvider.ts` — `switchModel` 消息处理 + PATCH thread
+
+### 5.4 API Key 安全存储
+- [x] SecretStore 读写 API Key / Provider / BaseUrl
+- [x] `extension.ts` 启动时异步加载 API Key → `tuiManager.setConfig()`
+- [x] `tuiProcessManager.ts` spawn 时传递 `DEEPSEEK_API_KEY` 环境变量
+- [x] SettingsPanel.vue 显示 Key 状态（已设置/未设置）+ 编辑
+
+### 5.5 二进制自动下载
+- [x] BinaryDownloader: GitHub Release API → 流式下载 → 验证
+- [x] 平台检测（win/mac/linux）+ arch 检测（x86_64/aarch64）
+- [x] 下载进度事件发射 → 前端显示
+- [x] `extension.ts` 启动时检测 + 提示下载
+- [x] 手动选择二进制路径（browseBinary）
+
+### 5.6 i18n 国际化
+- [x] `celest.locale` 配置项（zh-CN / en）
+- [x] 135 条翻译 key（设置/模型/二进制/公共 UI）
+- [x] `getAvailableModels()` / `getReasoningEfforts()` 辅助函数
+- [x] 设置变更时即时切换语言（`localeChanged` 消息）
+
+### 5.7 配置项扩展
+- [x] `celest.locale` — UI 语言
+- [x] `celest.provider` — API 提供商
+- [x] `celest.reasoningEffort` — 推理深度
+- [x] `celest.downloadBinary` — 下载命令
+- [x] `extension.ts` 配置变化监听器（`onDidChangeConfiguration`）
 
 ## Phase 6: 打磨 + 发布 ⏳ (未开始)
 
@@ -167,11 +205,30 @@
 - [ ] `vsce package` + 自动发布 GitHub Action
 - [ ] deepseek-tui 多平台编译 CI
 - [ ] Marketplace 发布
+- [ ] 端到端测试套件完善
 
 ---
 
-**当前进度:** Phase 4 完成（审批 + Diff + Tasks 面板），待进入 Phase 5  
-**最后更新:** 2026-05-24 (Phase 4 完成)
+**当前进度:** Phase 5 完成，待进入 Phase 6  
+**最后更新:** 2026-05-25 (CodeWhale v0.8.44 迁移)
+
+---
+
+## 🔄 CodeWhale 迁移 (2026-05-25)
+
+TUI 项目从 `deepseek-ai/DeepSeek-TUI` v0.8.40 升级到 `Hmbown/CodeWhale` v0.8.44。
+
+| 项目 | 旧值 | 新值 |
+|------|------|------|
+| 二进制名 | `deepseek-tui` | `codewhale-tui` |
+| 启动命令 | `serve --http --port X --host Y --insecure` | 不变 |
+| 默认端口 | 7878 | 8787 |
+| Release 资产名 | `deepseek-tui-windows-x64.exe` | `codewhale-tui-windows-x64.exe` |
+| Runtime API | 不变 | 不变 |
+
+**相关修改：**
+- `tuiProcessManager.ts` — spawn 命令不变，二进制查找改为 `codewhale-tui`，端口 8787
+- `binaryDownloader.ts` — GitHub URL → `Hmbown/CodeWhale`，资产名改为 `codewhale-tui-*`
 
 ---
 
@@ -218,12 +275,24 @@
 
 | 端点 | 用途 | Phase |
 |------|------|-------|
-| `POST /v1/threads/{id}/turns/{turn_id}/interrupt` | 优雅 cancel | 3.x |
-| `POST /v1/threads/{id}/compact` | 压缩对话 | 3.x |
-| `GET /v1/threads/summary` | 线程摘要 | 3.x |
-| `POST /v1/approvals/{id}` | 审批决策 | 4 |
-| `GET /v1/runtime/info` | 运行时信息 | 5 |
-| `GET /v1/workspace/status` | 工作区状态 | 4 |
+| `POST /v1/threads/{id}/turns/{turn_id}/interrupt` | 优雅 cancel | 3.x ✅ |
+| `POST /v1/threads/{id}/compact` | 压缩对话 | - |
+| `GET /v1/threads/summary` | 线程摘要 | - |
+| `POST /v1/approvals/{id}` | 审批决策 | 4 ✅ |
+| `GET /v1/runtime/info` | 运行时信息 | 5 ✅ |
+| `GET /v1/workspace/status` | 工作区状态 | - |
+| `PATCH /v1/threads/{id}` | 更新 thread 配置 | 5 ✅ |
+| `GET /v1/sessions` | 会话列表 | - |
+| `GET /v1/skills` | 技能列表 | - |
+| `GET /v1/usage` | 用量统计 | - |
+
+#### 4. 模型切换方案 (Phase 5 调研) ✅
+
+**TUI 无全局 `config/set` 端点。** 模型切换通过以下方式实现：
+- `CreateThreadRequest.model` — 创建线程时指定模型
+- `StartTurnRequest.model` — 发送 prompt 时指定模型
+- `PATCH /v1/threads/{id}` — 更新现有线程模型
+- API Key 通过环境变量 `DEEPSEEK_API_KEY` 传递
 
 
 ---

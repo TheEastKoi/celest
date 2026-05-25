@@ -1,10 +1,10 @@
 <template>
     <div class="tasks-panel">
-        <div v-if="loading" class="tasks-loading">加载中...</div>
+        <div v-if="loading" class="tasks-loading">{{ t('common.loading') }}</div>
         <div v-else-if="tasks.length === 0" class="tasks-empty">
             <div class="empty-icon">📌</div>
-            <p>暂无后台任务</p>
-            <p class="empty-hint">使用 task_create 工具创建的后台任务会显示在这里</p>
+            <p>{{ t('panel.tasks') }}</p>
+            <p class="empty-hint">agent 使用 task_create 创建的后台任务会显示在这里</p>
         </div>
         <div v-else class="tasks-list">
             <div v-for="task in tasks" :key="task.id" class="task-item">
@@ -21,6 +21,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '../i18n';
 export interface TaskItem {
     id: string;
     title?: string;
@@ -35,10 +36,11 @@ function statusLabel(s: string): string {
 </script>
 
 <style scoped>
-.tasks-panel { font-size: 11px; }
-.tasks-loading, .tasks-empty { padding: 12px; color: var(--vscode-descriptionForeground); text-align: center; font-style: italic; }
-.tasks-empty .empty-icon { font-size: 24px; margin-bottom: 4px; }
-.tasks-empty .empty-hint { font-size: 10px; margin-top: 4px; opacity: 0.7; }
+.tasks-panel { font-size: 12px; padding: 8px; }
+.tasks-loading, .tasks-empty { padding: 12px; color: var(--vscode-descriptionForeground); text-align: center; display: flex; flex-direction: column; align-items: center; }
+.tasks-empty .empty-icon { font-size: 40px; margin-bottom: 12px; }
+.tasks-empty .empty-hint { font-size: 12px; margin-top: 8px; }
+.tasks-empty p { margin: 2px 0; }
 .tasks-list { padding: 4px; }
 .task-item { padding: 6px 8px; border-radius: 3px; margin-bottom: 2px; }
 .task-item:hover { background: var(--vscode-list-hoverBackground); }

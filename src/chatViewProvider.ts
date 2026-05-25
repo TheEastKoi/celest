@@ -3,7 +3,9 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as cp from 'node:child_process';
-import { TuiProcessManager, type RuntimeEvent } from './tuiProcessManager';
+import { TuiProcessManager, type RuntimeEvent, type SessionConfig } from './tuiProcessManager';
+import { BinaryDownloader } from './binaryDownloader';
+import { getSecretStore } from './secretStorage';
 import { logger } from './logger';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
@@ -11,8 +13,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _promptSeq = 0;
     private _toolCache = new Map<string, { toolName: string; args: Record<string, unknown> }>();
     private _taskPollTimer: ReturnType<typeof setInterval> | null = null;
+    private _binaryDownloader: BinaryDownloader;
 
-    /** Phase 4: 工具元数据映射（类型/影响），TUI SSE 不传这些字段 */
     private static readonly TOOL_META: Record<string, { type: string; impact: string }> = {
         exec_shell:              { type: 'Shell 命令',         impact: '高 — 可执行任意系统命令' },
         write_file:              { type: '文件写入',           impact: '中 — 修改文件内容' },
@@ -37,6 +39,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private context: vscode.ExtensionContext,
         private tuiManager: TuiProcessManager,
     ) {
+        this._binaryDownloader = new BinaryDownloader(context);
+
         this.tuiManager.onEvent((event: RuntimeEvent) => {
             switch (event.event) {
                 case 'reasoningStarted':
@@ -81,7 +85,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     const toolResult = { callId, output, status: (event.event === 'toolFailed' ? 'error' : 'success') as string, toolName };
                     this.postMessage({ type: 'tuiToolResult', toolResult });
                     if (callId) this._toolCache.delete(callId);
-                    // task 工具完成后自动刷新 Tasks 面板
                     if (toolName && (toolName.includes("task") || toolName === "checklist_write" || toolName === "update_plan")) {
                         this.pushTasks();
                     }
@@ -94,7 +97,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'tuiCrashed':
                     this.postMessage({ type: 'tuiCrashed', message: 'TUI process crashed' });
                     break;
-                // Phase 4: 审批决定后通知前端
                 case 'approvalDecided':
                     this.postMessage({
                         type: 'tuiApprovalDecided',
@@ -115,15 +117,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             this.postMessage({ type: 'tuiStatus', status });
         });
 
-        // Phase 4: 监听审批请求 → 转发到前端（含缓存的工具参数）
         this.tuiManager.onApprovalRequired((approval) => {
-            // 已信任会话 → 不弹窗（TUI 会发 approval.required 但瞬间自动通过）
             if (this.tuiManager.autoApprove) {
                 logger.info(`[Approval] skipped popup (autoApprove=true) for ${approval.tool_name}`);
                 return;
             }
-            // TUI 中 tool_call 的 TurnItem id (item_xxx) ≠ engine call id (call_xxx)
-            // 通过工具名匹配缓存的参数（同一 turn 内只有一个待审批工具）
             let cached: { toolName: string; args: Record<string, unknown> } | undefined;
             for (const [, val] of this._toolCache) {
                 if (val.toolName === approval.tool_name) {
@@ -200,164 +198,297 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             case 'openNewWindow':
                 vscode.commands.executeCommand('workbench.action.newWindow');
                 break;
+
+            // Phase 4: 审批决策
+            case 'approvalDecision':
+                if (msg.approvalId && msg.decision) {
+                    const result = await this.tuiManager.decideApproval(
+                        msg.approvalId,
+                        msg.decision,
+                        msg.remember === true,
+                    );
+                    if (!result) {
+                        this.postMessage({ type: 'promptError', error: 'Approval decision failed' });
+                    }
+                }
+                break;
+
+            // Phase 5: 设置相关消息
+            case 'getSettings': {
+                const config = vscode.workspace.getConfiguration('celest');
+                const store = getSecretStore();
+                const hasKey = !!(await store.getApiKey());
+                const apiBase = config.get<string>('apiBase') || 'https://api.deepseek.com';
+                
+                // Phase 5: 读取 TUI runtime info
+                let tuiVersion = '';
+                const runtimeInfo = await this.tuiManager.getRuntimeInfo();
+                if (runtimeInfo) {
+                    tuiVersion = runtimeInfo.version;
+                }
+                
+                this.postMessage({
+                    type: 'settingsData',
+                    config: {
+                        apiBase,
+                        defaultModel: config.get<string>('defaultModel') || 'deepseek-v4-flash',
+                        autoDownloadBinary: config.get<boolean>('autoDownloadBinary') ?? true,
+                        binaryPath: config.get<string>('binaryPath') || '',
+                        locale: config.get<string>('locale') || 'zh-CN',
+                        provider: config.get<string>('provider') || 'deepseek',
+                        reasoningEffort: config.get<string>('reasoningEffort') || 'max',
+                    },
+                    apiKeyStored: hasKey,
+                    tuiVersion,
+                    tuiConnected: this.tuiManager.connected,
+                    extVersion: '0.1.0',
+                    nodeVersion: process.version,
+                    vscodeVersion: vscode.version,
+                });
+                break;
+            }
+
+            case 'saveSettings': {
+                const config = vscode.workspace.getConfiguration('celest');
+                const data = msg.config;
+                if (!data) break;
+                
+                // 保存普通配置
+                if (data.apiBase !== undefined) await config.update('apiBase', data.apiBase, true);
+                if (data.defaultModel !== undefined) await config.update('defaultModel', data.defaultModel, true);
+                if (data.autoDownloadBinary !== undefined) await config.update('autoDownloadBinary', data.autoDownloadBinary, true);
+                if (data.binaryPath !== undefined) await config.update('binaryPath', data.binaryPath, true);
+                if (data.locale !== undefined) await config.update('locale', data.locale, true);
+                if (data.provider !== undefined) {
+                    await config.update('provider', data.provider, true);
+                    await getSecretStore().setProvider(data.provider);
+                }
+                if (data.reasoningEffort !== undefined) await config.update('reasoningEffort', data.reasoningEffort, true);
+                
+                // 保存 API Key 到 SecretStorage
+                if (data.apiKey) {
+                    await getSecretStore().setApiKey(data.apiKey);
+                    // Phase 5: 更新 TUI 配置
+                    this.tuiManager.setConfig({ apiKey: data.apiKey, model: data.defaultModel, baseUrl: data.apiBase });
+                }
+                
+                // Phase 5: 更新 TUI 模型配置
+                const newModel = data.defaultModel || config.get<string>('defaultModel') || 'deepseek-v4-flash';
+                this.tuiManager.setConfig({ model: newModel });
+                
+                this.postMessage({ type: 'settingsSaved' });
+                vscode.window.showInformationMessage('Celest: Settings saved');
+                break;
+            }
+
+            case 'switchMode': {
+                const mode = msg.mode;
+                if (!mode) break;
+                logger.info(`[Mode] switching to ${mode}`);
+                this.tuiManager.setConfig({ mode } as any);
+                // yolo 模式自动信任所有工具，agent/plan 恢复审批
+                this.tuiManager.autoApprove = mode === 'yolo';
+                // 同步更新当前线程
+                const currentThreadId = (this.tuiManager as any)._currentThreadId;
+                if (currentThreadId) {
+                    this.tuiManager.updateThreadConfig(currentThreadId, { mode }).catch(() => {});
+                }
+                this.postMessage({ type: 'modeSwitched', mode });
+                break;
+            }
+            case 'switchModel': {
+                const model = msg.model;
+                if (!model) break;
+                logger.info(`[Model] switching to ${model}`);
+                this.tuiManager.setConfig({ model });
+                // 如果当前有活跃 thread，尝试 PATCH
+                const currentThreadId = (this.tuiManager as any)._currentThreadId;
+                if (currentThreadId) {
+                    await this.tuiManager.updateThreadConfig(currentThreadId, { model });
+                }
+                this.postMessage({ type: 'modelSwitched', model });
+                break;
+            }
+
+            case 'getRuntimeInfo': {
+                const info = await this.tuiManager.getRuntimeInfo();
+                this.postMessage({ type: 'runtimeInfo', info });
+                break;
+            }
+
+            case 'downloadBinary': {
+                try {
+                    this.postMessage({ type: 'downloadProgress', stage: 'downloading', percent: 0, message: 'Starting download...' });
+                    
+                    this._binaryDownloader.onProgress(progress => {
+                        this.postMessage({ type: 'downloadProgress', ...progress });
+                    });
+                    
+                    const binPath = await this._binaryDownloader.download();
+                    this.postMessage({ type: 'downloadComplete', binPath });
+                    vscode.window.showInformationMessage(`Celest: Binary downloaded to ${binPath}`);
+                } catch (err: any) {
+                    this.postMessage({ type: 'downloadFailed', error: err.message });
+                    vscode.window.showErrorMessage(`Celest: Download failed — ${err.message}`);
+                }
+                break;
+            }
+
+            case 'browseBinary': {
+                const result = await vscode.window.showOpenDialog({
+                    title: 'Select deepseek-tui binary',
+                    filters: process.platform === 'win32' 
+                        ? { 'Executables': ['exe'] } 
+                        : { 'All files': ['*'] },
+                    canSelectFiles: true,
+                    canSelectMany: false,
+                });
+                if (result && result[0]) {
+                    const binPath = result[0].fsPath;
+                    await vscode.workspace.getConfiguration('celest').update('binaryPath', binPath, true);
+                    this.postMessage({ type: 'binaryPathUpdated', binPath });
+                }
+                break;
+            }
+
+            case 'checkUpdate': {
+                const result = await this._binaryDownloader.checkUpdate();
+                this.postMessage({ type: 'updateCheckResult', ...result });
+                if (result.hasUpdate) {
+                    vscode.window.showInformationMessage(`Celest: Update available — v${result.latestVersion}`);
+                } else {
+                    vscode.window.showInformationMessage(`Celest: No update available.`);
+                }
+                break;
+            }
+
+            // ── 原有消息处理 ──
+            case 'newThreadClicked':
+                this.newSession();
+                break;
+            case 'clear':
+                this.clearChat();
+                break;
+            case 'copyToClipboard':
+                if (msg.text) vscode.env.clipboard.writeText(msg.text);
+                break;
+            case 'viewDiff':
+                if (msg.filePath && msg.oldContent !== undefined) {
+                    this.showDiff(msg.filePath, msg.oldContent, msg.newContent);
+                }
+                break;
             case 'getFiles': {
-                const files = await this.getWorkspaceFiles();
-                this.postMessage({ type: 'fileList', files });
+                const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+                this.postMessage({ type: 'fileList', files: this.getWorkspaceFiles(wsRoot) });
                 break;
             }
-            case 'pasteImage': {
-                const filePath = await this.savePastedImage(msg.fileName, msg.data);
-                this.postMessage({ type: 'pasteImageResult', fileName: msg.fileName, filePath });
+            case 'getTodoFromProvider':
+                this.postMessage({ type: 'todoFromProvider', todos: this._todoItems });
                 break;
-            }
+            case 'getPlanFromProvider':
+                this.postMessage({ type: 'planFromProvider', plan: this._planItems });
+                break;
+            case 'pasteImage':
+                if (msg.filePath) {
+                    this.postMessage({ type: 'pasteImageResult', filePath: msg.filePath, fileName: path.basename(msg.filePath) });
+                }
+                break;
             case 'ready':
-                this.postMessage({ type: 'tuiConnected', sessionId: `http://127.0.0.1:${this.tuiManager.port}` });
+                // Phase 5: 读取初始设置配置
+                {
+                    const cfg = vscode.workspace.getConfiguration('celest');
+                    const defaultModel = cfg.get<string>('defaultModel') || 'deepseek-v4-flash';
+                    this.tuiManager.setConfig({ model: defaultModel });
+                    
+                    // 尝试从 SecretStore 获取 API Key
+                    try {
+                        const apiKey = await getSecretStore().getApiKey();
+                        if (apiKey) {
+                            this.tuiManager.setConfig({ apiKey });
+                            logger.info('[Config] loaded API key from SecretStore');
+                        }
+                    } catch { /* SecretStore may not be available yet */ }
+                    
+                    this.postMessage({ type: 'tuiConnected', sessionId: 'http-sse' });
+                }
                 break;
-            // Phase 4: 审批决策 → 发送到 TUI
-            case 'approvalDecision': {
-                const { approvalId, decision, remember } = msg;
-                logger.info(`[Approval] user decision: ${decision} remember=${remember} for ${approvalId}`);
-                await this.tuiManager.decideApproval(approvalId, decision, remember);
-                // 不报错：审批可能已被 TUI 自动处理（超时），用户已关闭弹窗无需二次提示
+            case 'getTasks':
+                this.pushTasks();
                 break;
-            }
-            // Phase 4: Diff 预览 — 打开 VS Code diff editor
-            case 'viewDiff': {
-                await this.openDiffEditor(msg.filePath, msg.oldContent, msg.newContent);
-                break;
-            }
-            case 'getTasks': {
-                const tasks = await this.tuiManager.listTasks();
-                this.postMessage({ type: 'tasksList', tasks });
-                break;
-            }
         }
     }
 
-    /** Phase 4: 打开 VS Code diff editor 展示文件变更 */
-    private async openDiffEditor(filePath: string, oldContent?: string, newContent?: string): Promise<void> {
+    // ── 辅助方法 ──
+
+    private async showDiff(filePath: string, oldContent: string, newContent: string): Promise<void> {
         try {
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-            const absPath = path.resolve(wsRoot, filePath);
-
-            // 新内容：读当前文件（或传入的 newContent）
-            let newUri: vscode.Uri;
-            const currentContent = fs.existsSync(absPath)
-                ? fs.readFileSync(absPath, 'utf-8')
-                : (newContent || '');
-            const tmpDir = path.join(os.tmpdir(), 'celest-diffs');
-            fs.mkdirSync(tmpDir, { recursive: true });
-            const newTmpPath = path.join(tmpDir, `${path.basename(filePath)}.new`);
-            fs.writeFileSync(newTmpPath, (newContent !== undefined ? newContent : currentContent), 'utf-8');
-            newUri = vscode.Uri.file(newTmpPath);
-
-            // 旧内容
-            let oldUri: vscode.Uri;
-            if (oldContent !== undefined) {
-                const oldTmpPath = path.join(tmpDir, `${path.basename(filePath)}.old`);
-                fs.writeFileSync(oldTmpPath, oldContent, 'utf-8');
-                oldUri = vscode.Uri.file(oldTmpPath);
-            } else {
-                // 尝试 git show HEAD
-                const safePath = filePath.replace(/\\/g, '/');
-                let gitOld: string | null = null;
-                try {
-                    gitOld = cp.execFileSync(
-                        'git', ['show', `HEAD:${safePath}`],
-                        { cwd: wsRoot, encoding: 'utf-8', timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
-                    ).toString();
-                } catch {
-                    // git show 失败 → 检查是否 git 仓库中有此文件
-                    try {
-                        const gitDiff = cp.execFileSync(
-                            'git', ['diff', 'HEAD', '--', safePath],
-                            { cwd: wsRoot, encoding: 'utf-8', timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
-                        ).toString();
-                        if (gitDiff.trim()) {
-                            // 文件在 HEAD 中不存在（新文件）→ 旧侧显示空
-                            logger.info(`[Diff] ${filePath} not in HEAD, showing as new file`);
-                        }
-                    } catch {
-                        logger.warn(`[Diff] git not available for ${filePath}`);
-                    }
-                    // 任何 git 失败 → 旧侧显示空（至少用户能看到差异）
-                    const emptyTmpPath = path.join(tmpDir, `${path.basename(filePath)}.empty`);
-                    fs.writeFileSync(emptyTmpPath, '', 'utf-8');
-                    oldUri = vscode.Uri.file(emptyTmpPath);
-                }
-                if (gitOld !== null) {
-                    const oldTmpPath = path.join(tmpDir, `${path.basename(filePath)}.old`);
-                    fs.writeFileSync(oldTmpPath, gitOld, 'utf-8');
-                    oldUri = vscode.Uri.file(oldTmpPath);
-                }
-            }
-
-            const title = `${path.basename(filePath)} (Old ↔ New)`;
-            await vscode.commands.executeCommand('vscode.diff', oldUri!, newUri, title);
+            const oldUri = vscode.Uri.parse(`celest-diff:${filePath}.old`);
+            const newUri = vscode.Uri.file(filePath);
+            await vscode.commands.executeCommand('vscode.diff', oldUri, newUri, `${filePath} (Changes)`);
         } catch (err: any) {
-            logger.error('[Diff] failed to open diff editor:', err.message);
+            logger.error('showDiff failed:', err.message);
         }
+    }
+
+    private getWorkspaceFiles(wsRoot: string): { path: string; name: string }[] {
+        const results: { path: string; name: string }[] = [];
+        if (!wsRoot || !fs.existsSync(wsRoot)) return results;
+        try {
+            const walk = (dir: string, depth: number) => {
+                if (depth > 3) return;
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    if (entry.name.startsWith('.') && entry.name !== '.env') continue;
+                    if (entry.name === 'node_modules' || entry.name === '__pycache__') continue;
+                    const fullPath = path.join(dir, entry.name);
+                    const relPath = path.relative(wsRoot, fullPath).replace(/\\/g, '/');
+                    if (entry.isDirectory()) {
+                        walk(fullPath, depth + 1);
+                    } else {
+                        results.push({ path: relPath, name: entry.name });
+                    }
+                }
+            };
+            walk(wsRoot, 0);
+        } catch { /* ignore */ }
+        return results.slice(0, 200);
     }
 
     private startTaskPolling(): void {
-        this.stopTaskPolling();
+        if (this._taskPollTimer) return;
         this.pushTasks();
         this._taskPollTimer = setInterval(() => this.pushTasks(), 5000);
     }
-    private stopTaskPolling(): void {
-        if (this._taskPollTimer) { clearInterval(this._taskPollTimer); this._taskPollTimer = null; }
-    }
 
-    /** 自动推送后台任务列表到前端 */
-    private pushTasks(): void {
-        this.tuiManager.listTasks().then(tasks => {
-            const count = Array.isArray(tasks) ? tasks.length : 0;
-            logger.info(`[Tasks] pushTasks → ${count} tasks`);
-            if (this._view) this.postMessage({ type: 'tasksList', tasks });
-        }).catch((err: any) => {
-            logger.warn(`[Tasks] pushTasks failed: ${err.message}`);
-        });
-    }
-    /** 保存粘贴的图片到临时目录，返回路径 */
-    private async savePastedImage(fileName: string, base64Data: string): Promise<string> {
-        const tmpDir = path.join(os.tmpdir(), 'celest-images');
-        fs.mkdirSync(tmpDir, { recursive: true });
-        const filePath = path.join(tmpDir, fileName);
-        const buffer = Buffer.from(base64Data, 'base64');
-        fs.writeFileSync(filePath, buffer);
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-        return wsRoot ? path.relative(wsRoot, filePath) : filePath;
+    private _todoItems: any[] = [];
+    private _planItems: any = { steps: [] };
+
+    private async pushTasks(): Promise<void> {
+        try {
+            const tasks = await this.tuiManager.listTasks();
+            this.postMessage({ type: 'tasksList', tasks });
+        } catch (err: any) {
+            logger.warn('[Tasks] pushTasks error:', err.message);
+        }
     }
 
     private buildHtml(webview: vscode.Webview, guiDir: vscode.Uri): string {
-        const indexPath = guiDir.fsPath + '\\index.html';
-        if (!fs.existsSync(indexPath)) return this.fallbackHtml();
-        let html = fs.readFileSync(indexPath, 'utf-8');
-        const assetsDir = vscode.Uri.joinPath(guiDir, 'assets');
-        html = html.replace(/(src|href)="\.\/assets\/([^"]+)"/g, (_match, attr, filename) => {
-            const uri = webview.asWebviewUri(vscode.Uri.joinPath(assetsDir, filename));
-            return `${attr}="${uri}"`;
+        const indexPath = vscode.Uri.joinPath(guiDir, 'index.html');
+        let html = fs.readFileSync(indexPath.fsPath, 'utf-8');
+
+        // 替换资源路径为 webview URI
+        const guiWebviewUri = webview.asWebviewUri(guiDir);
+        html = html.replace(/(src|href)="\.?\/([^"]+)"/g, (_, attr, src) => {
+            if (src.startsWith('http')) return `${attr}="${src}"`;
+            if (src.startsWith('/')) src = src.slice(1);
+            return `${attr}="${webview.asWebviewUri(vscode.Uri.joinPath(guiDir, src))}"`;
         });
-        const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource}; font-src ${webview.cspSource};">`;
-        html = html.replace('<head>', '<head>\n' + csp);
+
+        // CSP
+        const nonce = 'celest-' + Math.random().toString(36).slice(2);
+        html = html.replace('<head>', `<head>\n<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'unsafe-eval'; img-src ${webview.cspSource} data: https:; font-src ${webview.cspSource}; connect-src https: http:;">`);
+        html = html.replace(/<script/g, `<script nonce="${nonce}"`);
+
         return html;
-    }
-
-    private async getWorkspaceFiles(): Promise<Array<{name:string; relativePath:string; path:string; isDir:boolean}>> {
-        const uris = await vscode.workspace.findFiles(
-            '**/*',
-            '{**/node_modules/**,**/.git/**,**/target/**,**/dist/**,**/out/**,**/__pycache__/**,**/*.exe,**/*.dll,**/*.so}',
-            2000,
-        );
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-        return uris.map(u => {
-            const abs = u.fsPath;
-            const rel = wsRoot ? path.relative(wsRoot, abs) : abs;
-            return { name: path.basename(abs), relativePath: rel, path: abs, isDir: false };
-        });
-    }
-
-    private fallbackHtml(): string {
-        return `<!DOCTYPE html><html><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;color:var(--vscode-descriptionForeground)">No GUI build found. Run build.mjs first.</div></body></html>`;
     }
 }
