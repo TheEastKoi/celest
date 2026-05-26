@@ -6,6 +6,8 @@
         <span class="context-sep">|</span>
         <span class="context-item">Turn {{ turnCount }}</span>
         <span class="context-sep">|</span>
+        <span class="context-item" v-if="gitBranch" :title="gitBranch">⎇ {{ gitBranch }}{{ gitDirty ? '*' : '' }}</span>
+        <span class="context-sep" v-if="gitBranch">|</span>
         <span class="context-item">{{ sessionId?.slice(0, 8) || 'new' }}</span>
     </div>
 </template>
@@ -17,6 +19,8 @@ const props = defineProps<{
     mode: string;
     turnCount: number;
     sessionId?: string;
+    gitBranch?: string;
+    gitDirty?: boolean;
 }>();
 defineEmits<{ cycleMode: [] }>();
 const modeLabels: Record<string, string> = { agent: 'Agent', plan: 'Plan', yolo: 'YOLO' };

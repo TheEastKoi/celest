@@ -2,11 +2,11 @@
   <img src="assets/icon.svg" width="96" alt="Celest">
 </p>
 
-<h1 align="center">Celest — DeepSeek V4 AI Agent for VS Code</h1>
+<h1 align="center">Celest — CodeWhale AI Agent for VS Code</h1>
 
 <p align="center">
-  将 <a href="https://github.com/Hmbown/CodeWhale">CodeWhale TUI</a> 的全部能力带入 VS Code<br>
-  HTTP/SSE 原生流式 · 工具执行 · Thinking 可视化 · 审批流程 · 多面板
+  将 <a href="https://github.com/Hmbown/CodeWhale">CodeWhale TUI</a> v0.8.45 的全部 37 个 API 带入 VS Code<br>
+  HTTP/SSE 原生流式 · 8 个右侧面板 · AP 覆盖率 100% · 50 单元测试
 </p>
 
 <p align="center">
@@ -41,6 +41,14 @@
 | 🔄 自动重试 — TUI 崩溃指数退避重连 | ✅ |
 | 💾 消息持久化 — localStorage 防抖自动保存 | ✅ |
 | 🎨 VS Code 主题适配 — 暗色/亮色主题跟随 | ✅ |
+| 🤖 Agents 面板 — 子代理状态实时跟踪 | ✅ |
+| 📊 Context 面板 — Token 用量 + Git 状态 + MCP | ✅ |
+| 🧩 Skills 面板 — TUI 技能启用/禁用管理 | ✅ |
+| 📊 Usage 面板 — 用量统计，按天/模型分组 | ✅ |
+| ⚡ /compact API — REST API 直接压缩上下文 | ✅ |
+| 🔀 Fork 线程 — 分支会话 | ✅ |
+| ⏰ Automations — 定时自动化任务管理 | ✅ |
+| 🌳 Git 分支 — ContextBar 显示分支和脏状态 | ✅ |
 
 ## 📸 截图
 
@@ -125,6 +133,10 @@ flowchart TB
             Work["WorkPanel<br/>任务清单"]
             Plan["PlanPanel<br/>计划进度"]
             Tasks["TasksPanel<br/>后台任务"]
+            Agents["AgentsPanel<br/>子代理状态"]
+            Context["ContextPanel<br/>用量·Git·MCP"]
+            Skills["SkillsPanel<br/>技能管理"]
+            Usage["UsagePanel<br/>用量图表"]
             Help["HelpPanel<br/>帮助"]
             Approval["ApprovalPopup<br/>审批弹窗"]
         end
@@ -173,11 +185,14 @@ celest/
 │       ├── WorkPanel.vue         Work 面板
 │       ├── PlanPanel.vue         Plan 面板
 │       ├── TasksPanel.vue        Tasks 面板
+│       ├── AgentsPanel.vue       Agents 面板
+│       ├── ContextPanel.vue      Context 面板
+│       ├── SkillsPanel.vue       Skills 面板
+│       ├── UsagePanel.vue        Usage 面板
 │       └── HelpPanel.vue         Help 面板
 ├── docs/
 │   ├── PLAN.md                   开发计划
-│   ├── INTEGRATION_TEST.md       集成测试用例
-│   └── TEST_PLAN.md              测试方案
+│   └── INTEGRATION_TEST.md       集成测试手册
 ├── build.mjs                     esbuild 构建脚本
 └── package.json
 ```
@@ -207,18 +222,19 @@ npx vitest run
 | 3 | @ / / 面板 + 会话列表 | ✅ |
 | 4 | 审批 + 执行 + Diff | ✅ |
 | 5 | 设置面板 + 模型/模式切换 + i18n + 二进制下载 | ✅ |
-| 6 | 打磨 + Marketplace 发布 | ⏳ |
+| 6 | 全量 API 适配 + 面板对齐 + UT 补充 | ✅ |
 
 ## 🔄 CodeWhale 迁移
 
-TUI v0.8.40 → v0.8.44 (CodeWhale)，celest 已完全适配。
+TUI v0.8.40 → v0.8.45 (CodeWhale)，celest 已完全适配 37/37 API。
 
 | 项目 | 旧 | 新 |
 |------|-----|-----|
 | 二进制 | `deepseek-tui` | `codewhale-tui` |
 | 端口 | 7878 | 8787 |
 | 仓库 | `deepseek-ai/DeepSeek-TUI` | `Hmbown/CodeWhale` |
-| API | 不变 | 不变 |
+| API 覆盖 | 10/37 (27%) | **37/37 (100%)** |
+| 测试 | 11 | **50** |
 
 详见 [docs/PLAN.md](docs/PLAN.md)
 

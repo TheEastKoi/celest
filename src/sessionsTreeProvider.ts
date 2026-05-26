@@ -18,7 +18,7 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<vscode.Tree
 
     async getChildren(): Promise<vscode.TreeItem[]> {
         try {
-            const threads = await this.tuiManager.listThreads();
+            const threads = await this.tuiManager.getThreadSummary(50);
             if (threads.length === 0) {
                 return [this.makePlaceholder('No sessions yet. Send a prompt to create one.')];
             }

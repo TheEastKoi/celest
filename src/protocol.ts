@@ -181,3 +181,53 @@ export interface ThreadInfo {
     source: string;
     name?: string;
 }
+
+// ── Phase 6: Skills API ─────────────────────────────────────────
+
+/** GET /v1/skills 响应中的单个技能条目 */
+export interface SkillEntry {
+    name: string;
+    description: string;
+    path: string;
+    enabled: boolean;
+}
+
+/** GET /v1/skills 完整响应 */
+export interface SkillsResponse {
+    directory: string;
+    warnings: string[];
+    skills: SkillEntry[];
+}
+
+/** POST /v1/skills/{name} 请求体 */
+export interface SetSkillEnabledRequest {
+    enabled: boolean;
+}
+
+/** POST /v1/skills/{name} 响应体 */
+export interface SetSkillEnabledResponse {
+    name: string;
+    enabled: boolean;
+}
+
+// ── 旧版 JSON-RPC 类型（ACP 兼容，保留给 jsonRpcClient） ──
+
+export interface JsonRpcRequest {
+    jsonrpc: '2.0';
+    method: string;
+    params?: unknown;
+    id?: string | number;
+}
+
+export interface JsonRpcResponse {
+    jsonrpc: '2.0';
+    result?: unknown;
+    error?: { code: number; message: string; data?: unknown };
+    id?: string | number;
+}
+
+export interface JsonRpcNotification {
+    jsonrpc: '2.0';
+    method: string;
+    params?: unknown;
+}

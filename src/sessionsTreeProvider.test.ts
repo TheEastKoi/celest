@@ -7,7 +7,7 @@ describe('SessionsTreeProvider', () => {
     vi.spyOn(logger, 'info').mockImplementation(() => {});
 
     function makeMockManager(listFn: () => Promise<any[]>) {
-        return { listThreads: listFn } as any;
+        return { getThreadSummary: listFn } as any;
     }
 
     it('should return placeholder when no sessions', async () => {

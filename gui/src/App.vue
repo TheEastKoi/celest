@@ -38,6 +38,42 @@
                     </div>
                     <div v-show="panelTasksOpen" class="panel-body"><TasksPanel :tasks="taskList" :loading="tasksLoading" /></div>
                 </div>
+                <div class="right-panel">
+                    <div class="panel-header" @click="panelSkillsOpen = !panelSkillsOpen">
+                        <span class="panel-arrow">{{ panelSkillsOpen ? '▼' : '▶' }}</span>
+                        <span class="panel-label">🧩 {{ t('panel.skills') || 'Skills' }}</span>
+                        <span v-if="skillsList.length > 0" class="panel-badge">{{ skillsList.length }}</span>
+                    </div>
+                    <div v-show="panelSkillsOpen" class="panel-body">
+                        <SkillsPanel :skills="skillsList" :warnings="skillsWarnings" :loading="skillsLoading" @toggle="handleSkillToggle" />
+                    </div>
+                </div>
+                <div class="right-panel">
+                    <div class="panel-header" @click="panelUsageOpen = !panelUsageOpen">
+                        <span class="panel-arrow">{{ panelUsageOpen ? '▼' : '▶' }}</span>
+                        <span class="panel-label">📊 Usage</span>
+                    </div>
+                    <div v-show="panelUsageOpen" class="panel-body"><UsagePanel /></div>
+                </div>
+                <div class="right-panel">
+                    <div class="panel-header" @click="panelAgentsOpen = !panelAgentsOpen">
+                        <span class="panel-arrow">{{ panelAgentsOpen ? '▼' : '▶' }}</span>
+                        <span class="panel-label">🤖 {{ t('panel.agents') || 'Agents' }}</span>
+                        <span v-if="agentsList.length > 0" class="panel-badge">{{ agentsList.length }}</span>
+                    </div>
+                    <div v-show="panelAgentsOpen" class="panel-body">
+                        <AgentsPanel :agents="agentsList" />
+                    </div>
+                </div>
+                <div class="right-panel">
+                    <div class="panel-header" @click="panelContextOpen = !panelContextOpen">
+                        <span class="panel-arrow">{{ panelContextOpen ? '▼' : '▶' }}</span>
+                        <span class="panel-label">📊 {{ t('panel.context') || 'Context' }}</span>
+                    </div>
+                    <div v-show="panelContextOpen" class="panel-body">
+                        <ContextPanel :usage="contextUsage" :workspace="contextWorkspace" :mcpCount="mcpCount" />
+                    </div>
+                </div>
                 <HelpPanel ref="helpPanelRef" />
             </div>
         </div>
@@ -46,7 +82,7 @@
             <div v-if="!tuiReady" class="connecting-banner">{{ connectingText }}</div>
             <InputBox ref="inputBoxRef" @send="handleSend" @stop="handleStop" :disabled="!tuiReady" :showStop="promptRunning" :files="fileList" />
         </footer>
-        <ContextBar :modelName="currentModelName" :mode="currentMode" :turnCount="turnCount" :sessionId="sessionId" @cycleMode="cycleMode" />
+        <ContextBar :modelName="currentModelName" :mode="currentMode" :turnCount="turnCount" :sessionId="sessionId" :gitBranch="gitBranch" :gitDirty="gitDirty" @cycleMode="cycleMode" />
 
         <ApprovalPopup
             :visible="showApproval"
@@ -91,6 +127,10 @@ import { getAvailableModels, setLocale, t } from './i18n';
 import type { FileItem } from './components/AtMentionPopup.vue';
 import HelpPanel from './components/HelpPanel.vue';
 import TasksPanel from './components/TasksPanel.vue';
+import SkillsPanel from './components/SkillsPanel.vue';
+import AgentsPanel from './components/AgentsPanel.vue';
+import ContextPanel from './components/ContextPanel.vue';
+import UsagePanel from './components/UsagePanel.vue';
 
 declare function acquireVsCodeApi(): any; const vscode = acquireVsCodeApi?.();
 const chatRef = ref<InstanceType<typeof ChatView>>(); const helpPanelRef = ref<InstanceType<typeof HelpPanel>>(); const inputBoxRef = ref<InstanceType<typeof InputBox>>(); const splitRef = ref<HTMLElement>();
@@ -109,6 +149,19 @@ const
     panelWorkOpen = ref(true),
     panelPlanOpen = ref(true),
     panelTasksOpen = ref(true),
+    panelSkillsOpen = ref(true),
+    skillsList = ref<any[]>([]),
+    skillsWarnings = ref<string[]>([]),
+    skillsLoading = ref(false),
+    panelAgentsOpen = ref(true),
+    panelContextOpen = ref(true),
+    agentsList = ref<any[]>([]),
+    contextUsage = ref<any>(null),
+    contextWorkspace = ref<any>(null),
+    mcpCount = ref<number | null>(null),
+    panelUsageOpen = ref(true),
+    gitBranch = ref(''),
+    gitDirty = ref(false),
     promptRunning = ref(false),
     requestSeq = ref(0),
     currentModel = ref('deepseek-v4-flash'),
@@ -161,11 +214,14 @@ function handleCheckUpdate() { vscode?.postMessage({ type: 'checkUpdate' }); }
 function handleBrowseBinary() { vscode?.postMessage({ type: 'browseBinary' }); }
 function handleClearChat() { vscode?.postMessage({ type: 'clear', method: 'clear' }); chatRef.value?.clearMessages(); }
 function handleNewWindow() { vscode?.postMessage({ type: 'openNewWindow' }); }
+function handleSkillToggle(name: string, enabled: boolean) { vscode?.postMessage({ type: 'toggleSkill', name, enabled }); }
+function fetchSkills() { skillsLoading.value = true; vscode?.postMessage({ type: 'getSkills' }); }
 function handleSend(text: string) {
     // 拦截本地 UI 命令
     const t = text.trim();
     if (t === '/clear') { handleClearChat(); return; }
     if (t === '/help' || t === '/?') { helpPanelRef.value?.show(); return; }
+    if (t === '/compact') { vscode?.postMessage({ type: 'compactThread' }); return; }
     if (!tuiReady.value) return;
     promptRunning.value = true;
     requestSeq.value++;
@@ -276,10 +332,50 @@ onMounted(async () => {
         case 'addAtMention': inputBoxRef.value?.insertAtCursor('@' + (msg.path || '') + ' '); break;
         case 'pasteImageResult': inputBoxRef.value?.replaceText('@[' + (msg.fileName || '') + '] ', '@' + (msg.filePath || '') + ' '); break;
         case 'clearChat': chatRef.value?.clearMessages(); break;
-        case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; break;
-        case 'tuiConnected': tuiReady.value = true; sessionId.value = msg.sessionId || ''; vscode?.postMessage({ type: 'getTasks' }); break;
+        case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; agentsList.value = []; break;
+        case 'tuiConnected': tuiReady.value = true; sessionId.value = msg.sessionId || ''; vscode?.postMessage({ type: 'getTasks' }); vscode?.postMessage({ type: 'getSkills' }); vscode?.postMessage({ type: 'getWorkspaceStatus' }); vscode?.postMessage({ type: 'getMcpStatus' }); break;
         case 'tuiStatus': tuiReady.value = msg.status === 'connected'; break;
         case 'tasksList': taskList.value = Array.isArray(msg.tasks) ? msg.tasks : []; tasksLoading.value = false; break;
+        // Phase 6.1: Skills
+        case 'skillsList': {
+            const s = msg.skills;
+            if (s) { skillsList.value = Array.isArray(s.skills) ? s.skills : []; skillsWarnings.value = Array.isArray(s.warnings) ? s.warnings : []; }
+            skillsLoading.value = false;
+            break;
+        }
+        case 'workspaceStatus': {
+            if (msg.status) {
+                gitBranch.value = msg.status.branch || '';
+                const dirty = (msg.status.staged || 0) + (msg.status.unstaged || 0) + (msg.status.untracked || 0);
+                gitDirty.value = dirty > 0;
+                contextWorkspace.value = msg.status;
+            }
+            break;
+        }
+        case 'compactSuccess': chatRef.value?.appendText('\n\n✅ Context compacted.'); break;
+        case 'compactFailed': chatRef.value?.appendText(`\n\n⚠️ Compact failed: ${msg.error || 'Unknown'}`); break;
+        // Phase 6.3: Agents
+        case 'agentSpawned': {
+            const existing = agentsList.value.find((a: any) => a.id === msg.agentId);
+            if (!existing) {
+                agentsList.value.push({ id: msg.agentId, status: 'spawned', prompt: msg.prompt || '' });
+            }
+            break;
+        }
+        case 'agentProgress': {
+            const a = agentsList.value.find((a: any) => a.id === msg.agentId);
+            if (a) { a.status = 'running'; if (msg.status) a.result = msg.status; }
+            break;
+        }
+        case 'agentCompleted': {
+            const ac = agentsList.value.find((a: any) => a.id === msg.agentId);
+            if (ac) { ac.status = 'completed'; if (msg.result) ac.result = msg.result; }
+            break;
+        }
+        // Phase 6.3: Context (response to getUsage/getWorkspace/getMcpStatus)
+        case 'usageData': contextUsage.value = msg.usage; break;
+        case 'mcpStatus': mcpCount.value = Array.isArray(msg.servers) ? msg.servers.length : null; break;
+        case 'tuiWarning': chatRef.value?.appendText(`\n\n⚠️ ${msg.message || 'Warning'}`); break;
         case 'tuiCrashed': tuiReady.value = false; promptRunning.value = false; chatRef.value?.hideTyping(); chatRef.value?.appendText(`\n\n⚠️ TUI crashed: ${msg.message || 'Unknown'}`); break;
 
         case 'tuiApprovalRequired':
@@ -343,4 +439,9 @@ onMounted(async () => {
 .chat-area { flex: 1; overflow-y: auto; }
 .input-area { flex-shrink: 0; border-top: 1px solid var(--vscode-sideBarSectionHeader-border); }
 .connecting-banner { padding: 8px 12px; font-size: 12px; text-align: center; color: var(--vscode-descriptionForeground); background: var(--vscode-textBlockQuote-background); }
+.git-status-bar { display: flex; align-items: center; gap: 4px; padding: 2px 12px; font-size: 10px; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--vscode-sideBarSectionHeader-border); flex-shrink: 0; }
+.git-status-bar.dirty { color: var(--vscode-editorWarning-foreground, #cca700); }
+.git-icon { font-size: 8px; }
+.git-branch { font-family: var(--vscode-editor-font-family); }
+.git-dirty-label { font-size: 9px; opacity: 0.7; }
 </style>

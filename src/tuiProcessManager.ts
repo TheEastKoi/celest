@@ -55,6 +55,154 @@ export interface ThreadSummary {
     archived?: boolean;
 }
 
+// ── Phase 6.1 新增接口 ──
+
+/** Skill 条目 (GET /v1/skills) */
+export interface SkillEntry {
+    name: string;
+    description: string;
+    path: string;
+    enabled: boolean;
+}
+
+/** Skills 列表响应 */
+export interface SkillsListResponse {
+    directory: string;
+    warnings: string[];
+    skills: SkillEntry[];
+}
+
+/** 工作区状态 (GET /v1/workspace/status) */
+export interface WorkspaceStatus {
+    workspace: string;
+    git_repo: boolean;
+    branch: string | null;
+    staged: number;
+    unstaged: number;
+    untracked: number;
+    ahead: number | null;
+    behind: number | null;
+}
+
+/** 用量统计 (GET /v1/usage) */
+export interface UsageBucket {
+    key: string;
+    input_tokens: number;
+    output_tokens: number;
+    cached_tokens: number;
+    reasoning_tokens: number;
+    cost_usd: number;
+    turns: number;
+}
+
+export interface UsageData {
+    since: string | null;
+    until: string | null;
+    group_by: string;
+    totals: UsageBucket;
+    buckets: UsageBucket[];
+}
+
+export interface UsageQuery {
+    since?: string;
+    until?: string;
+    group_by?: 'day' | 'model' | 'provider' | 'thread';
+}
+
+// ── Phase 6.2 新增接口 ──
+
+/** 会话元数据 (GET /v1/sessions) */
+export interface SessionMetadata {
+    id: string;
+    title: string;
+    created_at: string;
+    updated_at: string;
+    message_count: number;
+    total_tokens: number;
+    model: string;
+    workspace: string;
+    mode?: string;
+}
+
+export interface SessionsListResponse {
+    sessions: SessionMetadata[];
+}
+
+/** 会话详情 (GET /v1/sessions/{id}) */
+export interface SessionDetail {
+    metadata: SessionMetadata;
+    messages: unknown[];
+    system_prompt: string | null;
+}
+
+/** 恢复会话响应 (POST /v1/sessions/{id}/resume-thread) */
+export interface ResumeSessionResult {
+    thread_id: string;
+    session_id: string;
+    message_count: number;
+    summary: string;
+}
+
+/** 线程详情 (GET /v1/threads/{id}) */
+export interface ThreadDetail {
+    thread: ThreadSummary;
+    turns: unknown[];
+    items: unknown[];
+    latest_seq: number;
+}
+
+/** 创建任务请求 (POST /v1/tasks) */
+export interface NewTaskRequest {
+    prompt: string;
+    model?: string;
+    workspace?: string;
+    mode?: string;
+    allow_shell?: boolean;
+    trust_mode?: boolean;
+    auto_approve?: boolean;
+}
+
+// ── Phase 6.3+: Automations ──
+
+export interface AutomationRecord {
+    id: string;
+    name: string;
+    prompt: string;
+    rrule: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+    next_run_at?: string;
+    last_run_at?: string;
+}
+
+export interface AutomationRunRecord {
+    id: string;
+    automation_id: string;
+    scheduled_for: string;
+    status: string;
+    created_at: string;
+    started_at?: string;
+    completed_at?: string;
+    error_summary?: string;
+}
+
+export interface CreateAutomationRequest {
+    name: string;
+    prompt: string;
+    rrule: string;
+    cwds?: string[];
+    status?: string;
+}
+
+export interface UpdateAutomationRequest {
+    name?: string;
+    prompt?: string;
+    rrule?: string;
+    cwds?: string[];
+    status?: string;
+}
+
 /**
  * TUI 进程管理器 — HTTP/SSE Threads 版本 (CodeWhale 0.8.44+)
  *
@@ -310,6 +458,389 @@ export class TuiProcessManager {
         }
     }
 
+    // ── Phase 6.1 新增方法 ──
+
+    /** 列出可用 Skills (GET /v1/skills) */
+    async listSkills(): Promise<SkillsListResponse | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/skills`);
+            if (!resp.ok) { logger.warn(`[Skills] HTTP ${resp.status}`); return null; }
+            return await resp.json() as SkillsListResponse;
+        } catch (err: any) {
+            logger.warn(`[Skills] fetch failed: ${err.message}`);
+            return null;
+        }
+    }
+
+    /** 设置 Skill 启用/禁用 (POST /v1/skills/{name}) */
+    async setSkillEnabled(name: string, enabled: boolean): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/skills/${encodeURIComponent(name)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled }),
+            });
+            if (!resp.ok) {
+                logger.warn(`[Skills] setSkillEnabled ${name}=${enabled} HTTP ${resp.status}`);
+                return false;
+            }
+            logger.info(`[Skills] ${name} enabled=${enabled}`);
+            return true;
+        } catch (err: any) {
+            logger.warn(`[Skills] setSkillEnabled failed: ${err.message}`);
+            return false;
+        }
+    }
+
+    /** 获取工作区状态 (GET /v1/workspace/status) */
+    async getWorkspaceStatus(): Promise<WorkspaceStatus | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/workspace/status`);
+            if (!resp.ok) { logger.warn(`[Workspace] HTTP ${resp.status}`); return null; }
+            return await resp.json() as WorkspaceStatus;
+        } catch (err: any) {
+            logger.warn(`[Workspace] fetch failed: ${err.message}`);
+            return null;
+        }
+    }
+
+    /** 获取用量统计 (GET /v1/usage) */
+    async getUsage(query?: UsageQuery): Promise<UsageData | null> {
+        if (!this._started) return null;
+        try {
+            const params = new URLSearchParams();
+            if (query?.since) params.set('since', query.since);
+            if (query?.until) params.set('until', query.until);
+            if (query?.group_by) params.set('group_by', query.group_by);
+            const qs = params.toString();
+            const url = `http://127.0.0.1:${this._port}/v1/usage${qs ? '?' + qs : ''}`;
+            const resp = await fetch(url);
+            if (!resp.ok) { logger.warn(`[Usage] HTTP ${resp.status}`); return null; }
+            return await resp.json() as UsageData;
+        } catch (err: any) {
+            logger.warn(`[Usage] fetch failed: ${err.message}`);
+            return null;
+        }
+    }
+
+    /** 压缩对话上下文 (POST /v1/threads/{id}/compact) */
+    async compactThread(threadId: string, reason?: string): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const body: Record<string, string> = {};
+            if (reason) body.reason = reason;
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/${threadId}/compact`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (resp.ok) {
+                logger.info(`[Compact] thread ${threadId} compacted`);
+                return true;
+            }
+            logger.warn(`[Compact] HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) {
+            logger.warn(`[Compact] failed: ${err.message}`);
+            return false;
+        }
+    }
+
+    // ── Phase 6.2: Sessions ──
+
+    /** 列出会话 (GET /v1/sessions) */
+    async listSessions(limit?: number, search?: string): Promise<SessionMetadata[]> {
+        if (!this._started) return [];
+        try {
+            const params = new URLSearchParams();
+            if (limit) params.set('limit', String(limit));
+            if (search) params.set('search', search);
+            const qs = params.toString();
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/sessions${qs ? '?' + qs : ''}`);
+            if (!resp.ok) { logger.warn(`[Sessions] HTTP ${resp.status}`); return []; }
+            const data = await resp.json() as SessionsListResponse;
+            return data.sessions || [];
+        } catch (err: any) { logger.warn(`[Sessions] fetch failed: ${err.message}`); return []; }
+    }
+
+    /** 获取会话详情 (GET /v1/sessions/{id}) */
+    async getSession(id: string): Promise<SessionDetail | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/sessions/${encodeURIComponent(id)}`);
+            if (!resp.ok) { logger.warn(`[Sessions] HTTP ${resp.status}`); return null; }
+            return await resp.json() as SessionDetail;
+        } catch (err: any) { logger.warn(`[Sessions] fetch failed: ${err.message}`); return null; }
+    }
+
+    /** 删除会话 (DELETE /v1/sessions/{id}) */
+    async deleteSession(id: string): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (resp.ok) { logger.info(`[Sessions] deleted ${id}`); return true; }
+            logger.warn(`[Sessions] delete HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Sessions] delete failed: ${err.message}`); return false; }
+    }
+
+    /** 从会话恢复线程 (POST /v1/sessions/{id}/resume-thread) */
+    async resumeSessionThread(id: string, model?: string, mode?: string): Promise<ResumeSessionResult | null> {
+        if (!this._started) return null;
+        try {
+            const body: Record<string, string> = {};
+            if (model) body.model = model;
+            if (mode) body.mode = mode;
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/sessions/${encodeURIComponent(id)}/resume-thread`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!resp.ok) { logger.warn(`[Sessions] resume-thread HTTP ${resp.status}`); return null; }
+            return await resp.json() as ResumeSessionResult;
+        } catch (err: any) { logger.warn(`[Sessions] resume failed: ${err.message}`); return null; }
+    }
+
+    // ── Phase 6.2: Threads 增强 ──
+
+    /** 获取线程详情 (GET /v1/threads/{id}) */
+    async getThread(id: string): Promise<ThreadDetail | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/${encodeURIComponent(id)}`);
+            if (!resp.ok) { logger.warn(`[Thread] get HTTP ${resp.status}`); return null; }
+            return await resp.json() as ThreadDetail;
+        } catch (err: any) { logger.warn(`[Thread] get failed: ${err.message}`); return null; }
+    }
+
+    /** 获取线程摘要 (GET /v1/threads/summary) — 比 listThreads 更快 */
+    async getThreadSummary(limit?: number, search?: string): Promise<ThreadSummary[]> {
+        if (!this._started) return [];
+        try {
+            const params = new URLSearchParams();
+            if (limit) params.set('limit', String(limit));
+            if (search) params.set('search', search);
+            const qs = params.toString();
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/summary${qs ? '?' + qs : ''}`);
+            if (!resp.ok) { logger.warn(`[Thread] summary HTTP ${resp.status}`); return []; }
+            return await resp.json() as ThreadSummary[];
+        } catch (err: any) { logger.warn(`[Thread] summary failed: ${err.message}`); return []; }
+    }
+
+    /** 恢复线程 (POST /v1/threads/{id}/resume) */
+    async resumeThread(id: string, model?: string, mode?: string): Promise<ThreadSummary | null> {
+        if (!this._started) return null;
+        try {
+            const body: Record<string, string> = {};
+            if (model) body.model = model;
+            if (mode) body.mode = mode;
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/${encodeURIComponent(id)}/resume`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!resp.ok) { logger.warn(`[Thread] resume HTTP ${resp.status}`); return null; }
+            return await resp.json() as ThreadSummary;
+        } catch (err: any) { logger.warn(`[Thread] resume failed: ${err.message}`); return null; }
+    }
+
+    // ── Phase 6.2: Tasks CRUD ──
+
+    /** 创建后台任务 (POST /v1/tasks) */
+    async createTask(req: NewTaskRequest): Promise<Record<string, unknown> | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/tasks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(req),
+            });
+            if (!resp.ok) { logger.warn(`[Tasks] create HTTP ${resp.status}`); return null; }
+            return await resp.json() as Record<string, unknown>;
+        } catch (err: any) { logger.warn(`[Tasks] create failed: ${err.message}`); return null; }
+    }
+
+    /** 获取任务详情 (GET /v1/tasks/{id}) */
+    async getTask(id: string): Promise<Record<string, unknown> | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/tasks/${encodeURIComponent(id)}`);
+            if (!resp.ok) { logger.warn(`[Tasks] get HTTP ${resp.status}`); return null; }
+            return await resp.json() as Record<string, unknown>;
+        } catch (err: any) { logger.warn(`[Tasks] get failed: ${err.message}`); return null; }
+    }
+
+    /** 取消任务 (POST /v1/tasks/{id}/cancel) */
+    async cancelTask(id: string): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/tasks/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+            if (resp.ok) { logger.info(`[Tasks] cancelled ${id}`); return true; }
+            logger.warn(`[Tasks] cancel HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Tasks] cancel failed: ${err.message}`); return false; }
+    }
+
+    // ── Phase 6.3+: Automations ──
+
+    /** 列出自动化任务 (GET /v1/automations) */
+    async listAutomations(): Promise<AutomationRecord[]> {
+        if (!this._started) return [];
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/automations`);
+            if (!resp.ok) { logger.warn(`[Automations] HTTP ${resp.status}`); return []; }
+            return await resp.json() as AutomationRecord[];
+        } catch (err: any) { logger.warn(`[Automations] fetch failed: ${err.message}`); return []; }
+    }
+
+    /** 获取自动化任务详情 (GET /v1/automations/{id}) */
+    async getAutomation(id: string): Promise<AutomationRecord | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/automations/${encodeURIComponent(id)}`);
+            if (!resp.ok) { logger.warn(`[Automations] get HTTP ${resp.status}`); return null; }
+            return await resp.json() as AutomationRecord;
+        } catch (err: any) { logger.warn(`[Automations] get failed: ${err.message}`); return null; }
+    }
+
+    /** 列出自动化运行记录 (GET /v1/automations/{id}/runs) */
+    async listAutomationRuns(id: string, limit?: number): Promise<AutomationRunRecord[]> {
+        if (!this._started) return [];
+        try {
+            const qs = limit ? `?limit=${limit}` : '';
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/automations/${encodeURIComponent(id)}/runs${qs}`);
+            if (!resp.ok) { logger.warn(`[Automations] runs HTTP ${resp.status}`); return []; }
+            return await resp.json() as AutomationRunRecord[];
+        } catch (err: any) { logger.warn(`[Automations] runs failed: ${err.message}`); return []; }
+    }
+
+    /** 创建自动化 (POST /v1/automations) */
+    async createAutomation(req: CreateAutomationRequest): Promise<AutomationRecord | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/automations`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(req),
+            });
+            if (!resp.ok) { logger.warn(`[Automations] create HTTP ${resp.status}`); return null; }
+            return await resp.json() as AutomationRecord;
+        } catch (err: any) { logger.warn(`[Automations] create failed: ${err.message}`); return null; }
+    }
+
+    /** 更新自动化 (PATCH /v1/automations/{id}) */
+    async updateAutomation(id: string, req: UpdateAutomationRequest): Promise<AutomationRecord | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/automations/${encodeURIComponent(id)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(req),
+            });
+            if (!resp.ok) { logger.warn(`[Automations] update HTTP ${resp.status}`); return null; }
+            return await resp.json() as AutomationRecord;
+        } catch (err: any) { logger.warn(`[Automations] update failed: ${err.message}`); return null; }
+    }
+
+    /** 删除自动化 (DELETE /v1/automations/{id}) */
+    async deleteAutomation(id: string): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/automations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (resp.ok) { logger.info(`[Automations] deleted ${id}`); return true; }
+            logger.warn(`[Automations] delete HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Automations] delete failed: ${err.message}`); return false; }
+    }
+
+    /** 运行自动化 (POST /v1/automations/{id}/run) */
+    async runAutomation(id: string): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/automations/${encodeURIComponent(id)}/run`, { method: 'POST' });
+            if (resp.ok) { logger.info(`[Automations] run triggered ${id}`); return true; }
+            logger.warn(`[Automations] run HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Automations] run failed: ${err.message}`); return false; }
+    }
+
+    /** 暂停自动化 (POST /v1/automations/{id}/pause) */
+    async pauseAutomation(id: string): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/automations/${encodeURIComponent(id)}/pause`, { method: 'POST' });
+            if (resp.ok) { logger.info(`[Automations] paused ${id}`); return true; }
+            logger.warn(`[Automations] pause HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Automations] pause failed: ${err.message}`); return false; }
+    }
+
+    /** 恢复自动化 (POST /v1/automations/{id}/resume) */
+    async resumeAutomation(id: string): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/automations/${encodeURIComponent(id)}/resume`, { method: 'POST' });
+            if (resp.ok) { logger.info(`[Automations] resumed ${id}`); return true; }
+            logger.warn(`[Automations] resume HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Automations] resume failed: ${err.message}`); return false; }
+    }
+
+    // ── Phase 6.3: Fork ──
+
+    /** Fork 线程 (POST /v1/threads/{id}/fork) */
+    async forkThread(id: string): Promise<ThreadSummary | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/${encodeURIComponent(id)}/fork`, { method: 'POST' });
+            if (!resp.ok) { logger.warn(`[Thread] fork HTTP ${resp.status}`); return null; }
+            return await resp.json() as ThreadSummary;
+        } catch (err: any) { logger.warn(`[Thread] fork failed: ${err.message}`); return null; }
+    }
+
+    // ── Phase 6.3: MCP ──
+
+    /** 列出 MCP 服务器 (GET /v1/apps/mcp/servers) */
+    async listMcpServers(): Promise<Record<string, unknown>[]> {
+        if (!this._started) return [];
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/apps/mcp/servers`);
+            if (!resp.ok) { logger.warn(`[MCP] servers HTTP ${resp.status}`); return []; }
+            return await resp.json() as Record<string, unknown>[];
+        } catch (err: any) { logger.warn(`[MCP] servers fetch failed: ${err.message}`); return []; }
+    }
+
+    /** 列出 MCP 工具 (GET /v1/apps/mcp/tools) */
+    async listMcpTools(server?: string): Promise<Record<string, unknown>[]> {
+        if (!this._started) return [];
+        try {
+            const qs = server ? `?server=${encodeURIComponent(server)}` : '';
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/apps/mcp/tools${qs}`);
+            if (!resp.ok) { logger.warn(`[MCP] tools HTTP ${resp.status}`); return []; }
+            return await resp.json() as Record<string, unknown>[];
+        } catch (err: any) { logger.warn(`[MCP] tools fetch failed: ${err.message}`); return []; }
+    }
+
+    // ── Phase 6.2: Steer ──
+
+    /** Steer turn (POST /v1/threads/{id}/turns/{turn_id}/steer) */
+    async steerTurn(threadId: string, turnId: string, prompt: string): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/${threadId}/turns/${turnId}/steer`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt }),
+            });
+            if (resp.ok) { logger.info(`[Steer] sent to ${turnId}`); return true; }
+            logger.warn(`[Steer] HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Steer] failed: ${err.message}`); return false; }
+    }
+
     dispose(): void {
         this._disposed = true;
         this._currentAbort?.abort();
@@ -458,6 +989,29 @@ export class TuiProcessManager {
                         delta: detail,
                     });
                 }
+                break;
+            }
+            // Phase 6.3: Sub-agent events
+            case 'agent.spawned': {
+                const agentId = p.id || payload.agent_id || '';
+                const prompt = p.prompt || '';
+                this._onEvent.fire({ event: 'agentSpawned', itemId: agentId, delta: prompt });
+                break;
+            }
+            case 'agent.progress': {
+                const agentId = p.id || payload.agent_id || '';
+                const status = p.status || payload.status || '';
+                this._onEvent.fire({ event: 'agentProgress', itemId: agentId, delta: status });
+                break;
+            }
+            case 'agent.completed': {
+                const agentId = p.id || payload.agent_id || '';
+                const result = p.result || payload.result || '';
+                this._onEvent.fire({ event: 'agentCompleted', itemId: agentId, delta: result });
+                break;
+            }
+            case 'turn.interrupt_requested': {
+                this._onEvent.fire({ event: 'turnInterrupted' });
                 break;
             }
             case 'turn.completed': {

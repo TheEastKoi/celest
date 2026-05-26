@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as cp from 'node:child_process';
-import { TuiProcessManager, type RuntimeEvent, type SessionConfig } from './tuiProcessManager';
+import { TuiProcessManager, type RuntimeEvent, type SessionConfig, type SkillEntry, type SkillsListResponse, type UsageData, type WorkspaceStatus } from './tuiProcessManager';
 import { BinaryDownloader } from './binaryDownloader';
 import { getSecretStore } from './secretStorage';
 import { logger } from './logger';
@@ -85,16 +85,46 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     const toolResult = { callId, output, status: (event.event === 'toolFailed' ? 'error' : 'success') as string, toolName };
                     this.postMessage({ type: 'tuiToolResult', toolResult });
                     if (callId) this._toolCache.delete(callId);
-                    if (toolName && (toolName.includes("task") || toolName === "checklist_write" || toolName === "update_plan")) {
+                    // 只有 task_create / task_shell_start 等 task 工具才触发任务刷新
+                    if (toolName && toolName.includes("task")) {
                         this.pushTasks();
                     }
                     break;
                 }
+                // Phase 6.3: Sub-agent events
+                case 'agentSpawned':
+                    this.postMessage({ type: 'agentSpawned', agentId: event.itemId, prompt: event.delta });
+                    break;
+                case 'agentProgress':
+                    this.postMessage({ type: 'agentProgress', agentId: event.itemId, status: event.delta });
+                    break;
+                case 'agentCompleted':
+                    this.postMessage({ type: 'agentCompleted', agentId: event.itemId, result: event.delta });
+                    break;
+
+                case 'turnInterrupted':
+                    this.postMessage({ type: 'tuiWarning', message: 'Turn interrupted' });
+                    break;
                 case 'turnCompleted':
                     this.postMessage({ type: 'promptEnded' });
-                this.pushTasks();
+                    this.pushTasks();
+                    this.stopTaskPolling();
+                    break;
+                // Phase 6.1: 新 SSE 事件
+                case 'sandboxDenied':
+                    this.postMessage({ type: 'tuiWarning', message: `Sandbox denied: ${event.delta || 'unknown operation'}` });
+                    break;
+                case 'turnStarted':
+                    // 记录 turn_id（已在 tuiProcessManager 端处理，这里只做前端通知）
+                    if (event.turnId) {
+                        this.postMessage({ type: 'turnStarted', turnId: event.turnId });
+                    }
+                    break;
+                case 'itemInterrupted':
+                    this.postMessage({ type: 'tuiWarning', message: 'Operation interrupted by process restart' });
                     break;
                 case 'tuiCrashed':
+                    this.stopTaskPolling();
                     this.postMessage({ type: 'tuiCrashed', message: 'TUI process crashed' });
                     break;
                 case 'approvalDecided':
@@ -179,11 +209,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     this.postMessage({ type: 'promptError', error: 'TUI not connected yet.' });
                     return;
                 }
+                const prompt = String(msg.prompt || '').trim();
+
+                // Phase 6.1: /compact 命令 → REST API 调用
+                if (prompt === '/compact') {
+                    const currentThreadId = (this.tuiManager as any)._currentThreadId;
+                    if (currentThreadId) {
+                        const ok = await this.tuiManager.compactThread(currentThreadId);
+                        this.postMessage({
+                            type: 'tuiText',
+                            text: ok
+                                ? '✅ Context compaction triggered. The conversation has been compressed.'
+                                : '⚠️ Compaction failed. The TUI process may not support this operation.',
+                            sessionId: 'http-sse',
+                        });
+                        this.postMessage({ type: 'promptEnded' });
+                    } else {
+                        this.postMessage({ type: 'promptError', error: 'No active session to compact.' });
+                    }
+                    break;
+                }
+
                 this.startTaskPolling();
                 const mySeq = ++this._promptSeq;
                 if (mySeq > 1) this.tuiManager.cancel();
                 try {
-                    await this.tuiManager.sendPrompt(msg.prompt);
+                    await this.tuiManager.sendPrompt(prompt);
                     if (mySeq !== this._promptSeq) return;
                 } catch (err: any) {
                     if (mySeq !== this._promptSeq) return;
@@ -193,6 +244,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
             case 'cancelPrompt':
                 this.tuiManager.cancel();
+                this.stopTaskPolling();
                 this.postMessage({ type: 'promptEnded' });
                 break;
             case 'openNewWindow':
@@ -382,12 +434,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 this.postMessage({ type: 'fileList', files: this.getWorkspaceFiles(wsRoot) });
                 break;
             }
-            case 'getTodoFromProvider':
-                this.postMessage({ type: 'todoFromProvider', todos: this._todoItems });
-                break;
-            case 'getPlanFromProvider':
-                this.postMessage({ type: 'planFromProvider', plan: this._planItems });
-                break;
             case 'pasteImage':
                 if (msg.filePath) {
                     this.postMessage({ type: 'pasteImageResult', filePath: msg.filePath, fileName: path.basename(msg.filePath) });
@@ -415,6 +461,58 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             case 'getTasks':
                 this.pushTasks();
                 break;
+
+            // ── Phase 6.1 新增消息 ──
+
+            case 'getSkills': {
+                const skills = await this.tuiManager.listSkills();
+                this.postMessage({ type: 'skillsList', skills });
+                break;
+            }
+
+            case 'toggleSkill': {
+                if (msg.name && typeof msg.enabled === 'boolean') {
+                    const ok = await this.tuiManager.setSkillEnabled(msg.name, msg.enabled);
+                    if (ok) {
+                        // 刷新列表
+                        const skills = await this.tuiManager.listSkills();
+                        this.postMessage({ type: 'skillsList', skills });
+                    } else {
+                        this.postMessage({ type: 'promptError', error: `Failed to toggle skill: ${msg.name}` });
+                    }
+                }
+                break;
+            }
+
+            case 'getWorkspaceStatus': {
+                const status = await this.tuiManager.getWorkspaceStatus();
+                this.postMessage({ type: 'workspaceStatus', status });
+                break;
+            }
+
+            case 'getMcpStatus': {
+                const servers = await this.tuiManager.listMcpServers();
+                this.postMessage({ type: 'mcpStatus', servers });
+                break;
+            }
+
+            case 'getUsage': {
+                const groupBy = (msg.group_by || 'day') as 'day' | 'model' | 'provider' | 'thread';
+                const usage = await this.tuiManager.getUsage({ group_by: groupBy });
+                this.postMessage({ type: 'usageData', usage });
+                break;
+            }
+
+            case 'compactThread': {
+                const threadId = (this.tuiManager as any)._currentThreadId;
+                if (threadId) {
+                    const ok = await this.tuiManager.compactThread(threadId);
+                    this.postMessage({ type: ok ? 'compactSuccess' : 'compactFailed' });
+                } else {
+                    this.postMessage({ type: 'compactFailed', error: 'No active thread' });
+                }
+                break;
+            }
         }
     }
 
@@ -460,8 +558,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this._taskPollTimer = setInterval(() => this.pushTasks(), 5000);
     }
 
-    private _todoItems: any[] = [];
-    private _planItems: any = { steps: [] };
+    private stopTaskPolling(): void {
+        if (this._taskPollTimer) {
+            clearInterval(this._taskPollTimer);
+            this._taskPollTimer = null;
+        }
+    }
 
     private async pushTasks(): Promise<void> {
         try {
