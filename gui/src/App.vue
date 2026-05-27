@@ -21,15 +21,7 @@
                         <span class="panel-label">📋 {{ t('panel.work') }}</span>
                         <span v-if="todos.length > 0" class="panel-badge">{{ incompleteTodoCount }}</span>
                     </div>
-                    <div v-show="panelWorkOpen" class="panel-body"><WorkPanel :todos="todos" /></div>
-                </div>
-                <div class="right-panel">
-                    <div class="panel-header" @click="panelPlanOpen = !panelPlanOpen">
-                        <span class="panel-arrow">{{ panelPlanOpen ? '▼' : '▶' }}</span>
-                        <span class="panel-label">📐 {{ t('panel.plan') }}</span>
-                        <span v-if="plan.steps.length > 0" class="panel-badge">{{ incompletePlanCount }}</span>
-                    </div>
-                    <div v-show="panelPlanOpen" class="panel-body"><PlanPanel :plan="plan" /></div>
+                    <div v-show="panelWorkOpen" class="panel-body"><WorkPanel :todos="todos" :plan="plan" /></div>
                 </div>
                 <div class="right-panel">
                     <div class="panel-header" @click="panelTasksOpen = !panelTasksOpen">
@@ -120,7 +112,7 @@ import ChatView from './components/ChatView.vue';
 import InputBox from './components/InputBox.vue';
 import ContextBar from './components/ContextBar.vue';
 import WorkPanel from './components/WorkPanel.vue';
-import PlanPanel from './components/PlanPanel.vue';
+
 import ApprovalPopup from './components/ApprovalPopup.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import { getAvailableModels, setLocale, t } from './i18n';
@@ -147,7 +139,6 @@ const
     rightWidth = ref(300),
     isResizing = ref(false),
     panelWorkOpen = ref(true),
-    panelPlanOpen = ref(true),
     panelTasksOpen = ref(true),
     panelSkillsOpen = ref(true),
     skillsList = ref<any[]>([]),
@@ -199,7 +190,6 @@ const currentModelName = computed(() => {
     return m ? m.name : currentModel.value;
 });
 const incompleteTodoCount = computed(() => todos.value.filter((t: any) => t.status === 'in_progress' || t.status === 'pending').length);
-const incompletePlanCount = computed(() => plan.value.steps.filter((s: any) => s.status === 'in_progress' || s.status === 'pending').length);
 
 function openSettings() { showSettings.value = true; vscode?.postMessage({ type: 'getSettings' }); }
 function handleModelChange() { vscode?.postMessage({ type: 'switchModel', model: currentModel.value }); }
