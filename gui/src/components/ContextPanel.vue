@@ -18,13 +18,13 @@
             <div class="ctx-row" v-if="workspace.ahead"><span>领先</span><span>{{ workspace.ahead }}</span></div>
         </div>
         <div class="ctx-section" v-if="mcpCount !== null">
-            <div class="ctx-section-title">MCP</div>
+            <div class="ctx-section-title">🔌 MCP</div>
             <div class="ctx-row"><span>服务器</span><span>{{ mcpCount }}</span></div>
         </div>
         <div class="ctx-empty" v-if="!usage && !workspace && mcpCount === null">
-            <div class="empty-icon">📊</div>
+            <div class="empty-icon">🔍</div>
             <p>上下文 (Context)</p>
-            <p class="empty-hint">开始对话后显示用量和工作区信息</p>
+            <p class="empty-hint">发送对话后显示用量、Git 分支和 MCP 状态</p>
         </div>
     </div>
 </template>

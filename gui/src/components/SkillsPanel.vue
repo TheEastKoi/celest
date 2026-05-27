@@ -7,8 +7,9 @@
     <div v-if="loading" class="loading">Loading skills…</div>
 
     <div v-else-if="skills.length === 0" class="empty">
-      <p>No skills discovered.</p>
-      <p class="hint">Place SKILL.md files in <code>.agents/skills/</code> or <code>skills/</code> under your workspace.</p>
+      <div class="empty-icon">🧩</div>
+      <p>技能 (Skills)</p>
+      <p class="hint">将 SKILL.md 放在 <code>.agents/skills/</code> 或 <code>skills/</code> 目录下</p>
     </div>
 
     <div v-else class="skill-list">
@@ -75,10 +76,14 @@ const emit = defineEmits<{
 
 .loading, .empty {
   text-align: center;
-  padding: 16px;
+  padding: 12px;
   color: var(--vscode-descriptionForeground);
   font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
+.empty-icon { font-size: 36px; margin-bottom: 8px; }
 
 .hint {
   font-size: 12px;

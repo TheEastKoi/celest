@@ -51,9 +51,9 @@
                 <div class="right-panel">
                     <div class="panel-header" @click="panelUsageOpen = !panelUsageOpen">
                         <span class="panel-arrow">{{ panelUsageOpen ? '▼' : '▶' }}</span>
-                        <span class="panel-label">📊 Usage</span>
+                        <span class="panel-label">📈 Usage</span>
                     </div>
-                    <div v-show="panelUsageOpen" class="panel-body"><UsagePanel /></div>
+                    <div v-show="panelUsageOpen" class="panel-body"><UsagePanel :usage="contextUsage" :loading="usageLoading" @refresh="handleUsageRefresh" /></div>
                 </div>
                 <div class="right-panel">
                     <div class="panel-header" @click="panelAgentsOpen = !panelAgentsOpen">
@@ -159,6 +159,7 @@ const
     contextUsage = ref<any>(null),
     contextWorkspace = ref<any>(null),
     mcpCount = ref<number | null>(null),
+    usageLoading = ref(false),
     panelUsageOpen = ref(true),
     gitBranch = ref(''),
     gitDirty = ref(false),
@@ -216,6 +217,7 @@ function handleClearChat() { vscode?.postMessage({ type: 'clear', method: 'clear
 function handleNewWindow() { vscode?.postMessage({ type: 'openNewWindow' }); }
 function handleSkillToggle(name: string, enabled: boolean) { vscode?.postMessage({ type: 'toggleSkill', name, enabled }); }
 function fetchSkills() { skillsLoading.value = true; vscode?.postMessage({ type: 'getSkills' }); }
+function handleUsageRefresh(groupBy: string) { usageLoading.value = true; vscode?.postMessage({ type: 'getUsage', group_by: groupBy }); }
 function handleSend(text: string) {
     // 拦截本地 UI 命令
     const t = text.trim();
@@ -326,13 +328,13 @@ onMounted(async () => {
         }
         case 'tuiToolProgress': chatRef.value?.updateToolResult(msg.toolResult?.callId || '', msg.toolResult?.output ?? '', 'pending'); break;
         case 'promptStarted': promptRunning.value = true; turnCount.value++; break;
-        case 'promptEnded': promptRunning.value = false; chatRef.value?.hideTyping(); break;
+        case 'promptEnded': promptRunning.value = false; chatRef.value?.hideTyping(); vscode?.postMessage({ type: 'getUsage', group_by: 'day' }); vscode?.postMessage({ type: 'getWorkspaceStatus' }); break;
         case 'promptError': promptRunning.value = false; chatRef.value?.hideTyping(); chatRef.value?.appendText(`\n\n⚠️ Error: ${msg.error}`); break;
         case 'fileList': fileList.value = Array.isArray(msg.files) ? msg.files : []; break;
         case 'addAtMention': inputBoxRef.value?.insertAtCursor('@' + (msg.path || '') + ' '); break;
         case 'pasteImageResult': inputBoxRef.value?.replaceText('@[' + (msg.fileName || '') + '] ', '@' + (msg.filePath || '') + ' '); break;
         case 'clearChat': chatRef.value?.clearMessages(); break;
-        case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; agentsList.value = []; break;
+        case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; agentsList.value = []; contextUsage.value = null; contextWorkspace.value = null; break;
         case 'tuiConnected': tuiReady.value = true; sessionId.value = msg.sessionId || ''; vscode?.postMessage({ type: 'getTasks' }); vscode?.postMessage({ type: 'getSkills' }); vscode?.postMessage({ type: 'getWorkspaceStatus' }); vscode?.postMessage({ type: 'getMcpStatus' }); break;
         case 'tuiStatus': tuiReady.value = msg.status === 'connected'; break;
         case 'tasksList': taskList.value = Array.isArray(msg.tasks) ? msg.tasks : []; tasksLoading.value = false; break;
@@ -373,7 +375,7 @@ onMounted(async () => {
             break;
         }
         // Phase 6.3: Context (response to getUsage/getWorkspace/getMcpStatus)
-        case 'usageData': contextUsage.value = msg.usage; break;
+        case 'usageData': contextUsage.value = msg.usage; usageLoading.value = false; break;
         case 'mcpStatus': mcpCount.value = Array.isArray(msg.servers) ? msg.servers.length : null; break;
         case 'tuiWarning': chatRef.value?.appendText(`\n\n⚠️ ${msg.message || 'Warning'}`); break;
         case 'tuiCrashed': tuiReady.value = false; promptRunning.value = false; chatRef.value?.hideTyping(); chatRef.value?.appendText(`\n\n⚠️ TUI crashed: ${msg.message || 'Unknown'}`); break;
