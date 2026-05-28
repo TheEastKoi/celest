@@ -2,11 +2,11 @@
   <img src="assets/icon.svg" width="96" alt="Celest">
 </p>
 
-<h1 align="center">Celest — CodeWhale AI Agent for VS Code</h1>
+<h1 align="center">Celest — DeepSeek AI Agent for VS Code</h1>
 
 <p align="center">
-  将 <a href="https://github.com/Hmbown/CodeWhale">CodeWhale TUI</a> v0.8.45 的全部 37 个 API 带入 VS Code<br>
-  HTTP/SSE 原生流式 · 8 个右侧面板 · AP 覆盖率 100% · 50 单元测试
+  <strong>免费 · 直连 DeepSeek API · 基于 CodeWhale 引擎</strong><br>
+  在 VS Code 中拥有完整 AI 编程助手 — 流式对话 · 工具执行 · 多面板 · 全免费
 </p>
 
 <p align="center">
@@ -15,46 +15,51 @@
 
 ---
 
-## ✨ 功能
+## 为什么选择 Celest？
 
-| 功能 | 状态 |
-|------|:----:|
-| 💬 流式对话 — 实时流式渲染，逐 token 追加 | ✅ |
-| 🧠 Thinking 可视化 — reasoning 实时流，折叠可展开 | ✅ |
-| 🔧 工具执行 — 工具调用卡片（折叠、状态、结果预览） | ✅ |
-| 📋 Work 面板 — 解析 todo_write 展示任务清单 | ✅ |
-| 📐 Plan 面板 — 解析 update_plan 展示步骤进度 | ✅ |
-| 📌 Tasks 面板 — 后台任务状态跟踪 | ✅ |
-| 📁 @ 提及 — 工作区文件自动补全 | ✅ |
-| ⚡ / 命令 — 63 个斜杠命令，A-Z 排序，中文别名 | ✅ |
-| ❓ Help 面板 — 命令 + 快捷键，分类展示 | ✅ |
-| 📂 会话列表 — TreeView 真实数据（Threads API） | ✅ |
-| 🔐 审批弹窗 — 工具执行前确认（允许/拒绝/信任会话） | ✅ |
-| 📄 Diff 预览 — View Diff → VS Code diff editor | ✅ |
-| ⚙ 设置面板 — 通用/模型/关于，API Key 安全存储 | ✅ |
-| 🎛️ 模型切换 — 8 模型下拉，PATCH 同步当前线程 | ✅ |
-| 🔀 模式切换 — Agent/Plan/YOLO 一键循环，YOLO 跳审 | ✅ |
-| 🌐 国际化 — 简体中文 / English 界面切换 | ✅ |
-| 📥 二进制下载 — GitHub Release 自动下载 codewhale-tui | ✅ |
-| 🖼️ 粘贴图片 — 截图粘贴自动 @path | ✅ |
-| ⏹ Stop 按钮 — 中断生成（interrupt API + fallback） | ✅ |
-| 🔄 自动重试 — TUI 崩溃指数退避重连 | ✅ |
-| 💾 消息持久化 — localStorage 防抖自动保存 | ✅ |
-| 🎨 VS Code 主题适配 — 暗色/亮色主题跟随 | ✅ |
-| 🤖 Agents 面板 — 子代理状态实时跟踪 | ✅ |
-| 📊 Context 面板 — Token 用量 + Git 状态 + MCP | ✅ |
-| 🧩 Skills 面板 — TUI 技能启用/禁用管理 | ✅ |
-| 📊 Usage 面板 — 用量统计，按天/模型分组 | ✅ |
-| ⚡ /compact API — REST API 直接压缩上下文 | ✅ |
-| 🔀 Fork 线程 — 分支会话 | ✅ |
-| ⏰ Automations — 定时自动化任务管理 | ✅ |
-| 🌳 Git 分支 — ContextBar 显示分支和脏状态 | ✅ |
+| | Celest | 其他插件 |
+|---|:---:|:---:|
+| 💰 价格 | **完全免费** | 付费订阅 |
+| 🔗 连接方式 | **直连 DeepSeek API** | 中转服务器 |
+| 🧠 后台引擎 | **CodeWhale TUI** (Rust) | 自研/闭源 |
+| 🔧 工具执行 | **全量 37 API** | 有限 |
+| 📊 右侧面板 | **7 个实时面板** | 1-2 个 |
+| 🎯 审批流程 | **Agent/Plan/YOLO** 可切换 | 无 |
+| 📁 文件引用 | **@[路径] 彩色标签** | 纯文本 |
+
+---
+
+## ✨ 功能一览
+
+| 功能 | 说明 |
+|------|------|
+| 💬 流式对话 | HTTP/SSE 原生流式，逐 token 渲染 |
+| 🧠 Thinking | reasoning 实时流，折叠可展开 |
+| 🔧 工具执行 | 工具卡片（折叠/状态/结果预览/View Diff） |
+| 📋 Work 面板 | 任务清单 + 计划进度，自动解析 |
+| 📌 Tasks 面板 | 后台任务状态实时跟踪 |
+| 🤖 Agents 面板 | 子代理状态实时跟踪 |
+| 📊 Context 面板 | Token 用量 + Git 状态 + MCP 计数 |
+| 🧩 Skills 面板 | TUI 技能启用/禁用管理 |
+| 📈 Usage 面板 | 用量统计，按天/模型/线程分组 |
+| 📁 @ 提及 | 工作区文件自动补全 + 彩色类型标签 |
+| ⚡ / 命令 | 57 个斜杠命令，中文别名，列对齐弹窗 |
+| ❓ Help 面板 | 命令 + 快捷键参考 |
+| 📂 会话管理 | TreeView 会话列表 + 标题 + 删除 |
+| 🔐 审批弹窗 | 工具执行确认，低影响自动批准 |
+| ⚙ 设置面板 | API Key 安全存储 + 模型切换 + i18n |
+| 🗜 上下文压缩 | /compact 命令 + 按钮，减少 token |
+| ⏹ Stop 打断 | 中断当前生成 + async interrupt |
+| 🌐 国际化 | 简体中文 / English |
+| 📥 自动下载 | codewhale-tui 一键下载 + 更新 |
+
+---
 
 ## 📸 截图
 
 <p align="center">
   <img src="docs/screenshot.png" alt="Celest 完整界面" width="800">
-  <br><em>完整工作界面 — 聊天 + 右侧面板 + Sessions + 文件标签</em>
+  <br><em>完整工作界面 — 聊天 + 7 个右侧面板 + Sessions + 文件标签</em>
 </p>
 
 <details>
@@ -66,15 +71,17 @@
 </p>
 </details>
 
+---
+
 ## 📦 安装
 
 ### 前置条件
 
 - **VS Code** ≥ 1.70.0
-- **Node.js** ≥ 18.18.0
-- **[CodeWhale TUI](https://github.com/Hmbown/CodeWhale)** ≥ 0.8.44（需已安装并在 PATH 中，或使用内置下载功能）
+- **Node.js** ≥ 18
+- **DeepSeek API Key** ([免费获取](https://platform.deepseek.com))
 
-### 安装步骤
+### 快速开始
 
 ```bash
 git clone https://github.com/TheEastKoi/celest.git
@@ -83,161 +90,45 @@ npm install
 npm run build
 ```
 
-然后在 VS Code 中按 `F5` 启动扩展开发模式，或：
+VS Code 按 `F5` 启动，或：
 
 ```bash
 npx vsce package
 code --install-extension celest-*.vsix
 ```
 
+打开 Celest 面板 → 设置 API Key → 开始使用。
+
+---
+
 ## 🚀 使用
 
-1. 打开 VS Code，点击侧边栏 🌙 **Celest** 图标
-2. 等待 TUI 连接成功（自动启动 `codewhale-tui serve --http`）
-3. 输入框输入问题，`Enter` 发送
-4. 使用 `@` 提及文件，`/` 浏览命令
-5. 右侧面板查看 Work / Plan / Tasks / Help
-6. 点击 ⚙ 打开设置面板配置模型和 API Key
-
-### 快捷键
-
-| 键 | 功能 |
-|----|------|
-| `Enter` | 发送消息 |
-| `Shift+Enter` | 换行 |
-| `↑↓` (弹窗) | 浏览选项 |
-| `Esc` | 关闭弹窗 |
-| `Ctrl+L` | 聚焦输入框 |
-
-### 常用命令
-
-| 命令 | 说明 |
+| 操作 | 方式 |
 |------|------|
-| `/help` | 打开帮助面板 |
-| `/clear` | 清空对话 |
-| `/compact` | 压缩上下文 |
-| `/model` | 切换模型 |
+| 发送消息 | `Enter` |
+| 提及文件 | `@` → 弹窗选择 |
+| 浏览命令 | `/` → 弹窗选择 |
+| 新建会话 | 顶栏 `＋` |
+| 压缩上下文 | 顶栏 `🗜` 或 `/compact` |
+| 切换模型 | 底部栏下拉框 |
+| 切换模式 | 底部栏 `Agent/Plan/YOLO` |
+| 打开设置 | 顶栏 `⚙` |
 
-> 输入 `/` 浏览全部 63 个命令（含中文别名和分类筛选）
+---
 
 ## 🏗️ 架构
 
-```mermaid
-flowchart TB
-    subgraph VSCode["VS Code"]
-        subgraph WebView["Vue 3 WebView GUI"]
-            App["App.vue<br/>根布局 · 分栏 · 审批"]
-            Chat["ChatView<br/>消息列表 · 流式渲染"]
-            Input["InputBox<br/>输入框 · @提及 · /命令"]
-            Settings["SettingsPanel<br/>设置面板"]
-            Work["WorkPanel<br/>任务清单"]
-            Plan["PlanPanel<br/>计划进度"]
-            Tasks["TasksPanel<br/>后台任务"]
-            Agents["AgentsPanel<br/>子代理状态"]
-            Context["ContextPanel<br/>用量·Git·MCP"]
-            Skills["SkillsPanel<br/>技能管理"]
-            Usage["UsagePanel<br/>用量图表"]
-            Help["HelpPanel<br/>帮助"]
-            Approval["ApprovalPopup<br/>审批弹窗"]
-        end
-
-        subgraph ExtHost["Extension Host (Node.js)"]
-            Provider["ChatViewProvider<br/>消息路由"]
-            TUI["TuiProcessManager<br/>进程管理 · HTTP/SSE"]
-            Secret["SecretStorage<br/>API Key 安全存储"]
-            Downloader["BinaryDownloader<br/>二进制下载"]
-            WebView <-.->|postMessage| Provider
-            Provider --> TUI
-            Provider --> Secret
-            Provider --> Downloader
-        end
-    end
-
-    subgraph TUIProcess["CodeWhale TUI (Rust)"]
-        HTTP["HTTP API<br/>threads · turns · approvals"]
-        Engine["Agent Engine<br/>推理循环 · 工具执行"]
-        HTTP --> Engine
-    end
-
-    TUI <-..->|"HTTP/SSE<br/>localhost:8787"| HTTP
+```
+VS Code WebView (Vue 3)  ←→  Extension Host (Node.js)  ←→  CodeWhale TUI (Rust)
+      前端界面                   消息路由+进程管理              AI引擎+工具执行
 ```
 
-## 📁 项目结构
+- **前端**: Vue 3 + Vite + markdown-it + highlight.js
+- **后端**: TypeScript, VS Code Extension API, HTTP/SSE
+- **引擎**: [CodeWhale TUI](https://github.com/Hmbown/CodeWhale) (Rust), 37 个 Runtime API
+- **直连**: 不走任何中转服务器，API Key 本地安全存储
 
-```
-celest/
-├── src/
-│   ├── extension.ts              入口
-│   ├── chatViewProvider.ts       WebView 管理 + 消息路由
-│   ├── tuiProcessManager.ts      TUI 进程 + HTTP/SSE Threads API
-│   ├── sessionsTreeProvider.ts   会话 TreeView
-│   ├── secretStorage.ts          API Key 安全存储
-│   └── binaryDownloader.ts       GitHub Release 二进制下载
-├── gui/src/
-│   ├── App.vue                   根布局 + 分栏
-│   ├── i18n.ts                   国际化 (zh-CN/en)
-│   └── components/
-│       ├── ChatView.vue          消息列表
-│       ├── InputBox.vue          输入框
-│       ├── SettingsPanel.vue     设置面板
-│       ├── ContextBar.vue        底部信息栏（模型/模式）
-│       ├── ApprovalPopup.vue     审批弹窗
-│       ├── WorkPanel.vue         Work 面板
-│       ├── PlanPanel.vue         Plan 面板
-│       ├── TasksPanel.vue        Tasks 面板
-│       ├── AgentsPanel.vue       Agents 面板
-│       ├── ContextPanel.vue      Context 面板
-│       ├── SkillsPanel.vue       Skills 面板
-│       ├── UsagePanel.vue        Usage 面板
-│       └── HelpPanel.vue         Help 面板
-├── docs/
-│   ├── PLAN.md                   开发计划
-│   └── INTEGRATION_TEST.md       集成测试手册
-├── build.mjs                     esbuild 构建脚本
-└── package.json
-```
-
-## 🔧 开发
-
-```bash
-cd celest
-npm install
-
-# 构建
-node build.mjs
-
-# 测试
-npx vitest run
-
-# F5 启动调试
-```
-
-## 📋 开发阶段
-
-| Phase | 内容 | 状态 |
-|-------|------|:----:|
-| 0 | 项目骨架 | ✅ |
-| 1 | TUI 通信 + Vue GUI | ✅ |
-| 2 | 聊天核心强化 (HTTP/SSE) | ✅ |
-| 3 | @ / / 面板 + 会话列表 | ✅ |
-| 4 | 审批 + 执行 + Diff | ✅ |
-| 5 | 设置面板 + 模型/模式切换 + i18n + 二进制下载 | ✅ |
-| 6 | 全量 API 适配 + 面板对齐 + UT 补充 | ✅ |
-| 6.4 | 封闭测试修复 (26 bug + 10 feature) | ✅ |
-
-## 🔄 CodeWhale 迁移
-
-TUI v0.8.40 → v0.8.45 (CodeWhale)，celest 已完全适配 37/37 API。
-
-| 项目 | 旧 | 新 |
-|------|-----|-----|
-| 二进制 | `deepseek-tui` | `codewhale-tui` |
-| 端口 | 7878 | 8787 |
-| 仓库 | `deepseek-ai/DeepSeek-TUI` | `Hmbown/CodeWhale` |
-| API 覆盖 | 10/37 (27%) | **37/37 (100%)** |
-| 测试 | 11 | **50** |
-
-详见 [docs/PLAN.md](docs/PLAN.md)
+---
 
 ## 📄 许可
 
