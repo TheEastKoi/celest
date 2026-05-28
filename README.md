@@ -53,18 +53,14 @@
 ## 📸 截图
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Celest 工作界面" width="800">
-  <br><em>工作界面 — Chat + Work/Plan/Tasks 面板</em>
+  <img src="docs/screenshot.png" alt="Celest 完整界面" width="800">
+  <br><em>完整工作界面 — 聊天 + 7 个右侧面板 + Sessions TreeView + 文件标签</em>
 </p>
 
-<details>
-<summary>⚙ 设置面板</summary>
 <p align="center">
-  <img src="docs/settings-general.png" alt="通用设置" width="400">
-  <img src="docs/settings-model.png" alt="模型设置" width="400">
-  <img src="docs/settings-about.png" alt="关于" width="400">
+  <img src="docs/screenshot-queue.png" alt="文件标签与队列" width="800">
+  <br><em>文件标签渲染 — @[路径] 彩色类型标签 + 队列提示</em>
 </p>
-</details>
 
 ## 📦 安装
 
