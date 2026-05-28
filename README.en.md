@@ -19,28 +19,26 @@
 
 | Feature | Status |
 |---------|:------:|
-| 💬 Streaming chat — real-time token-by-token rendering | ✅ |
-| 🧠 Thinking visualization — reasoning stream, collapsible | ✅ |
-| 🔧 Tool execution — tool call cards (collapse, status, result preview) | ✅ |
-| 📋 Work panel — todo_write parsing, task checklist | ✅ |
-| 📐 Plan panel — update_plan parsing, step progress | ✅ |
-| 📌 Tasks panel — background task tracking | ✅ |
-| 📁 @ mentions — workspace file autocomplete | ✅ |
-| ⚡ / commands — 63 slash commands, A-Z sorted | ✅ |
-| ❓ Help panel — commands + shortcuts reference | ✅ |
-| 📂 Session list — TreeView with real Threads API data | ✅ |
-| 🔐 Approval popup — confirm tool execution (allow/deny/trust session) | ✅ |
-| 📄 Diff preview — View Diff → VS Code diff editor | ✅ |
-| ⚙ Settings panel — General/Model/About tabs, secure API Key storage | ✅ |
-| 🎛️ Model switching — 8-model dropdown, PATCH sync to current thread | ✅ |
-| 🔀 Mode switching — Agent/Plan/YOLO one-click cycle, YOLO auto-approves | ✅ |
-| 🌐 i18n — zh-CN / English UI switching | ✅ |
-| 📥 Binary download — auto-download codewhale-tui from GitHub Releases | ✅ |
-| 🖼️ Paste images — screenshot paste auto-saves as @path | ✅ |
-| ⏹ Stop button — interrupt generation (interrupt API + fallback) | ✅ |
-| 🔄 Auto-retry — exponential backoff on TUI crash | ✅ |
-| 💾 Message persistence — localStorage debounced auto-save | ✅ |
-| 🎨 VS Code theme — dark/light mode adaptation | ✅ |
+| 💬 Streaming chat | Real-time token-by-token rendering | ✅ |
+| 🧠 Thinking | Reasoning stream, collapsible | ✅ |
+| 🔧 Tool execution | Tool cards (collapse/status/result/View Diff) | ✅ |
+| 📋 Work panel | Task checklist + plan progress, auto-parsed | ✅ |
+| 📌 Tasks panel | Background task real-time tracking | ✅ |
+| 🤖 Agents panel | Sub-agent status tracking | ✅ |
+| 📊 Context panel | Token usage + Git status + MCP count | ✅ |
+| 🧩 Skills panel | TUI skills enable/disable management | ✅ |
+| 📈 Usage panel | Usage stats by day/model/thread | ✅ |
+| 🖼️ Image OCR | Screenshot paste + text extraction (requires Tesseract) | ✅ |
+| 📁 @ mentions | Workspace file autocomplete + colored type chips | ✅ |
+| ⚡ / commands | 57 slash commands, Chinese aliases, aligned popup | ✅ |
+| ❓ Help panel | Commands + shortcuts reference | ✅ |
+| 📂 Session list | TreeView with title + delete | ✅ |
+| 🔐 Approval popup | Tool execution confirm, low-impact auto-approve | ✅ |
+| ⚙ Settings panel | API Key secure storage + model switch + i18n | ✅ |
+| 🗜 Context compact | /compact command + button | ✅ |
+| ⏹ Stop button | Interrupt generation + async cancel | ✅ |
+| 🌐 i18n | zh-CN / English UI | ✅ |
+| 📥 Auto download | codewhale-tui one-click install + update | ✅ |
 
 ## 📸 Screenshots
 

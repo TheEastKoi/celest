@@ -42,6 +42,7 @@
 | 📊 Context 面板 | Token 用量 + Git 状态 + MCP 计数 |
 | 🧩 Skills 面板 | TUI 技能启用/禁用管理 |
 | 📈 Usage 面板 | 用量统计，按天/模型/线程分组 |
+| 🖼️ 图像识别 | 支持图片粘贴 + OCR 文字提取（需安装 Tesseract） |
 | 📁 @ 提及 | 工作区文件自动补全 + 彩色类型标签 |
 | ⚡ / 命令 | 57 个斜杠命令，中文别名，列对齐弹窗 |
 | ❓ Help 面板 | 命令 + 快捷键参考 |
@@ -121,6 +122,7 @@ code --install-extension celest-*.vsix
 - **`Ctrl+Shift+L`** — 在资源管理器中选文件 → 快捷键添加
 - **粘贴路径** — 复制文件路径粘贴 → 自动格式化为 `@[路径]`
 - **文件标签** — 聊天区中 `@[路径]` 渲染为彩色类型标签，hover 显示路径，点击打开
+- **图像识别** — 粘贴图片后 AI 可读取文字内容（需安装 [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki)，设置 → 关于 查看状态）
 
 ### 命令
 
