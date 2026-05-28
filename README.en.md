@@ -2,11 +2,11 @@
   <img src="assets/icon.svg" width="96" alt="Celest">
 </p>
 
-<h1 align="center">Celest — DeepSeek V4 AI Agent for VS Code</h1>
+<h1 align="center">Celest — DeepSeek AI Agent for VS Code</h1>
 
 <p align="center">
-  Bring the full power of <a href="https://github.com/Hmbown/CodeWhale">CodeWhale TUI</a> into VS Code<br>
-  Native HTTP/SSE streaming · Tool execution · Thinking visualization · Multi-panel
+  <strong>Free · Direct DeepSeek API · Powered by CodeWhale Engine</strong><br>
+  Full AI coding assistant in VS Code — Streaming chat · Tool execution · Multi-panel · 100% Free
 </p>
 
 <p align="center">
@@ -15,36 +15,52 @@
 
 ---
 
+## Why Celest?
+
+| | Celest | Others |
+|---|:---:|:---:|
+| 💰 Price | **Completely Free** | Paid subscription |
+| 🔗 Connection | **Direct to DeepSeek API** | Proxy server |
+| 🧠 Engine | **CodeWhale TUI** (Rust) | Proprietary |
+| 🔧 Tool Execution | **All 37 APIs** | Limited |
+| 📊 Panels | **7 real-time panels** | 1-2 |
+| 🎯 Approval Modes | **Agent/Plan/YOLO** switchable | None |
+| 📁 File References | **@[path] colored chips** | Plain text |
+
+---
+
 ## ✨ Features
 
-| Feature | Status |
-|---------|:------:|
-| 💬 Streaming chat | Real-time token-by-token rendering | ✅ |
-| 🧠 Thinking | Reasoning stream, collapsible | ✅ |
-| 🔧 Tool execution | Tool cards (collapse/status/result/View Diff) | ✅ |
-| 📋 Work panel | Task checklist + plan progress, auto-parsed | ✅ |
-| 📌 Tasks panel | Background task real-time tracking | ✅ |
-| 🤖 Agents panel | Sub-agent status tracking | ✅ |
-| 📊 Context panel | Token usage + Git status + MCP count | ✅ |
-| 🧩 Skills panel | TUI skills enable/disable management | ✅ |
-| 📈 Usage panel | Usage stats by day/model/thread | ✅ |
-| 🖼️ Image OCR | Screenshot paste + text extraction (requires Tesseract) | ✅ |
-| 📁 @ mentions | Workspace file autocomplete + colored type chips | ✅ |
-| ⚡ / commands | 57 slash commands, Chinese aliases, aligned popup | ✅ |
-| ❓ Help panel | Commands + shortcuts reference | ✅ |
-| 📂 Session list | TreeView with title + delete | ✅ |
-| 🔐 Approval popup | Tool execution confirm, low-impact auto-approve | ✅ |
-| ⚙ Settings panel | API Key secure storage + model switch + i18n | ✅ |
-| 🗜 Context compact | /compact command + button | ✅ |
-| ⏹ Stop button | Interrupt generation + async cancel | ✅ |
-| 🌐 i18n | zh-CN / English UI | ✅ |
-| 📥 Auto download | codewhale-tui one-click install + update | ✅ |
+| Feature | Description |
+|------|------|
+| 💬 Streaming Chat | HTTP/SSE native streaming, token-by-token |
+| 🧠 Thinking | Real-time reasoning stream, collapsible |
+| 🔧 Tool Execution | Tool cards (collapse/status/result/View Diff) |
+| 📋 Work Panel | Task checklist + plan progress, auto-parsed |
+| 📌 Tasks Panel | Background task real-time tracking |
+| 🤖 Agents Panel | Sub-agent status tracking |
+| 📊 Context Panel | Token usage + Git status + MCP count |
+| 🧩 Skills Panel | TUI skills enable/disable management |
+| 📈 Usage Panel | Usage stats by day/model/thread |
+| 🖼️ Image OCR | Screenshot paste + text extraction (requires Tesseract) |
+| 📁 @ Mentions | Workspace file autocomplete + colored type chips |
+| ⚡ / Commands | 57 slash commands, Chinese aliases, aligned popup |
+| ❓ Help Panel | Commands + shortcuts reference |
+| 📂 Session Management | TreeView session list + title + delete |
+| 🔐 Approval Popup | Tool execution confirm, low-impact auto-approve |
+| ⚙ Settings Panel | Secure API Key storage + model switch + i18n |
+| 🗜 Context Compaction | /compact command + button to reduce tokens |
+| ⏹ Stop & Interrupt | Cancel generation + async interrupt |
+| 🌐 i18n | Simplified Chinese / English |
+| 📥 Auto Download | codewhale-tui one-click install + update |
+
+---
 
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Celest Workspace" width="800">
-  <br><em>Workspace — Chat + Work/Plan/Tasks panels</em>
+  <img src="docs/screenshot.png" alt="Celest Full UI" width="800">
+  <br><em>Full workspace — Chat + 7 panels + Sessions + File chips</em>
 </p>
 
 <details>
@@ -56,15 +72,17 @@
 </p>
 </details>
 
+---
+
 ## 📦 Installation
 
 ### Prerequisites
 
 - **VS Code** ≥ 1.70.0
-- **Node.js** ≥ 18.18.0
-- **[CodeWhale TUI](https://github.com/Hmbown/CodeWhale)** ≥ 0.8.44 (must be in PATH, or use the built-in downloader)
+- **Node.js** ≥ 18
+- **DeepSeek API Key** ([Get free key](https://platform.deepseek.com))
 
-### Steps
+### Quick Start
 
 ```bash
 git clone https://github.com/TheEastKoi/celest.git
@@ -73,110 +91,92 @@ npm install
 npm run build
 ```
 
-Then press `F5` in VS Code to launch the extension development host, or:
+Press `F5` in VS Code, or:
 
 ```bash
 npx vsce package
 code --install-extension celest-*.vsix
 ```
 
+Open Celest panel → Set API Key → Start chatting.
+
+---
+
 ## 🚀 Usage
 
-1. Open VS Code, click the 🌙 **Celest** icon in the sidebar
-2. Wait for TUI to connect (auto-starts `codewhale-tui serve --http`)
-3. Type in the input box, press `Enter` to send
-4. Use `@` to mention files, `/` to browse commands
-5. Right panel: Work / Plan / Tasks / Help
-6. Click ⚙ to open Settings and configure model + API Key
+### Basic Operations
 
-### Keyboard Shortcuts
+| Action | How |
+|------|------|
+| Send message | `Enter` |
+| New line | `Shift+Enter` |
+| Stop generation | Click `⏹ Stop` |
+| New session | Top bar `＋` |
+| Compact context | Top bar `🗜` or type `/compact` |
+| Clear chat | Type `/clear` |
+| Open help | Type `/help` |
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Send message |
-| `Shift+Enter` | New line |
-| `↑↓` (in popup) | Navigate options |
-| `Esc` | Close popup |
-| `Ctrl+L` | Focus input |
+### File References
 
-### Common Commands
+- **`@` Popup** — Type `@` → search and select workspace files
+- **`Ctrl+Shift+L`** — Select file in Explorer → shortcut to add
+- **Paste path** — Copy file path & paste → auto-formatted as `@[path]`
+- **File chips** — `@[path]` rendered as colored type chips in chat, hover for path, click to open
+- **Image OCR** — Paste images for AI to read text (requires [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki), check Settings → About)
 
-| Command | Description |
-|---------|-------------|
-| `/help` | Open help panel |
-| `/clear` | Clear chat |
-| `/compact` | Compact context |
-| `/model` | Switch model |
+### Commands
 
-> Type `/` to browse all 63 commands
+- **`/` Popup** — Type `/` → browse 57 commands (supports Chinese search)
+- **Common**: `/clear` `/compact` `/help` `/model` `/mode` `/doctor` `/context`
 
-## 🏗️ Architecture
+### Model & Mode
 
-```mermaid
-flowchart TB
-    subgraph VSCode["VS Code"]
-        subgraph WebView["Vue 3 WebView GUI"]
-            App["App.vue<br/>Layout · Split · Approval"]
-            Chat["ChatView<br/>Messages · Streaming"]
-            Input["InputBox<br/>Input · @mention · /command"]
-            Settings["SettingsPanel<br/>Settings"]
-            Work["WorkPanel<br/>Work"]
-            Plan["PlanPanel<br/>Plan"]
-            Tasks["TasksPanel<br/>Tasks"]
-            Help["HelpPanel<br/>Help"]
-            Approval["ApprovalPopup<br/>Approval"]
-        end
+- **Model switch** — Bottom bar dropdown (V4 Pro / V4 Flash etc.)
+- **Mode cycle** — Bottom bar click Mode: Agent (approval) → Plan → YOLO (auto-execute)
+- **Approval** — Agent mode shows confirm popup before tool execution, low-impact tools auto-approved
 
-        subgraph ExtHost["Extension Host (Node.js)"]
-            Provider["ChatViewProvider<br/>Message routing"]
-            TUI["TuiProcessManager<br/>Process · HTTP/SSE"]
-            Secret["SecretStorage<br/>API Key storage"]
-            Downloader["BinaryDownloader<br/>Binary download"]
-            WebView <-.->|postMessage| Provider
-            Provider --> TUI
-            Provider --> Secret
-            Provider --> Downloader
-        end
-    end
+---
 
-    subgraph TUIProcess["CodeWhale TUI (Rust)"]
-        HTTP["HTTP API<br/>threads · turns · approvals"]
-        Engine["Agent Engine<br/>Reasoning · Tools"]
-        HTTP --> Engine
-    end
-
-    TUI <-..->|"HTTP/SSE<br/>localhost:8787"| HTTP
-```
-
-## 📁 Project Structure
+## 🏗️ Project Structure
 
 ```
 celest/
-├── src/
-│   ├── extension.ts              Entry point
-│   ├── chatViewProvider.ts       WebView + message routing
-│   ├── tuiProcessManager.ts      TUI process + HTTP/SSE Threads API
-│   ├── sessionsTreeProvider.ts   Session TreeView
-│   ├── secretStorage.ts          API Key secure storage
-│   └── binaryDownloader.ts       GitHub Release binary download
-├── gui/src/
-│   ├── App.vue                   Root layout + split
-│   ├── i18n.ts                   i18n (zh-CN/en)
+├── src/                          # Extension backend (TypeScript)
+│   ├── extension.ts              # Entry: command registration + views
+│   ├── chatViewProvider.ts       # WebView management + message routing
+│   ├── tuiProcessManager.ts      # TUI process + HTTP/SSE 37 APIs
+│   ├── sessionsTreeProvider.ts   # Session TreeView
+│   ├── secretStorage.ts          # API Key secure storage
+│   ├── binaryDownloader.ts       # GitHub Release binary download
+│   └── logger.ts                 # Unified logging
+├── gui/src/                      # Frontend UI (Vue 3)
+│   ├── App.vue                   # Root layout + split + approval
+│   ├── i18n.ts                   # i18n (zh-CN / en)
+│   ├── helpData.ts               # 57 commands + 5 shortcuts data
+│   ├── global.css                # Global styles + file chips
 │   └── components/
-│       ├── ChatView.vue          Message list
-│       ├── InputBox.vue          Input box
-│       ├── SettingsPanel.vue     Settings panel
-│       ├── ContextBar.vue        Status bar (model/mode)
-│       ├── ApprovalPopup.vue     Approval popup
-│       ├── WorkPanel.vue         Work panel
-│       ├── PlanPanel.vue         Plan panel
-│       ├── TasksPanel.vue        Tasks panel
-│       └── HelpPanel.vue         Help panel
+│       ├── ChatView.vue          # Message list + streaming
+│       ├── InputBox.vue          # Input + @mention + /command
+│       ├── MarkdownRenderer.vue  # Markdown rendering (highlight.js)
+│       ├── ThinkingBlock.vue     # Thinking collapsible block
+│       ├── ContextBar.vue        # Bottom bar (model/mode/Git)
+│       ├── SettingsPanel.vue     # Settings (General/Model/About)
+│       ├── ApprovalPopup.vue     # Approval popup
+│       ├── WorkPanel.vue         # Work panel (tasks + plan)
+│       ├── TasksPanel.vue        # Tasks panel
+│       ├── AgentsPanel.vue       # Agents panel
+│       ├── ContextPanel.vue      # Context panel
+│       ├── SkillsPanel.vue       # Skills panel
+│       ├── UsagePanel.vue        # Usage panel
+│       ├── HelpPanel.vue         # Help panel
+│       ├── AtMentionPopup.vue    # @ file popup
+│       └── SlashCommandPopup.vue # / command popup
 ├── docs/
-│   ├── PLAN.md                   Development plan
-│   ├── INTEGRATION_TEST.md       Integration test cases
-│   └── TEST_PLAN.md              Test plan
-├── build.mjs                     esbuild script
+│   ├── PLAN.md                   # Development plan
+│   ├── INTEGRATION_TEST.md       # Integration test manual
+│   ├── CHANGELOG.md              # Changelog
+│   └── BUGLOG.md                 # Bug tracking
+├── build.mjs                     # esbuild script
 └── package.json
 ```
 
@@ -192,34 +192,34 @@ node build.mjs
 # Test
 npx vitest run
 
-# Press F5 to debug
+# F5 to debug
 ```
 
 ## 📋 Development Phases
 
 | Phase | Content | Status |
-|-------|---------|:------:|
+|-------|------|:----:|
 | 0 | Project skeleton | ✅ |
 | 1 | TUI communication + Vue GUI | ✅ |
 | 2 | Chat core (HTTP/SSE) | ✅ |
 | 3 | @ / / panels + session list | ✅ |
 | 4 | Approval + execution + Diff | ✅ |
-| 5 | Settings + model/mode switching + i18n + binary download | ✅ |
-| 6 | Full API + panels + tests | ✅ |
-| 6.4 | Closed beta fixes (26 bug + 10 feature) | ✅ |
+| 5 | Settings + model/mode + i18n + download | ✅ |
+| 6 | Full API adaptation + panel alignment + tests | ✅ |
+| 6.4 | Closed beta fixes (26 bugs + 10 features) | ✅ |
 
-## 🔄 CodeWhale Migration
+## 🔄 Backend Engine
 
-TUI v0.8.40 → v0.8.44 (CodeWhale). Celest is fully adapted.
+Celest is powered by [CodeWhale TUI](https://github.com/Hmbown/CodeWhale), communicating via HTTP/SSE with all 37 Runtime APIs. The TUI process is auto-managed (start/restart/update) — no manual setup required.
 
-| Item | Old | New |
-|------|-----|-----|
-| Binary | `deepseek-tui` | `codewhale-tui` |
-| Port | 7878 | 8787 |
-| Repo | `deepseek-ai/DeepSeek-TUI` | `Hmbown/CodeWhale` |
-| API | Unchanged | Unchanged |
+| Item | Detail |
+|------|------|
+| Engine | CodeWhale TUI v0.8.46 (Rust) |
+| Protocol | HTTP/SSE (localhost:8787) |
+| API Coverage | 37/37 (100%) |
+| Auto-download | GitHub Release → one-click install |
 
-See [docs/PLAN.md](docs/PLAN.md)
+---
 
 ## 📄 License
 
