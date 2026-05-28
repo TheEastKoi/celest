@@ -1,3 +1,69 @@
+## 2026-05-29 (Phase 6.4 封闭测试修复)
+
+### 新增功能 (10 项)
+
+| # | 功能 | 说明 |
+|---|------|------|
+| 1 | 文件标签 (File Chips) | `@[路径]` 渲染为彩色类型标签，hover 路径，点击打开 |
+| 2 | @ 弹窗文件类型图标 | 彩色扩展名图标替代统一 📄 |
+| 3 | 粘贴文件路径格式化 | 完整路径→`@[完整路径]`；纯文件名→异步搜索补全 |
+| 4 | /help 面板精简 | 57 命令+5 快捷键（移除 TUI UI 专属） |
+| 5 | / 弹窗列对齐 | 命令名/中文/描述/分类四列固定宽度 |
+| 6 | Session 删除 | TreeView 右键删除（本地隐藏+持久化） |
+| 7 | OCR 检测 | 设置面板检测 tesseract，未安装引导下载 |
+| 8 | 下载 codewhale | 改名+强制更新(.new 文件绕过占用) |
+| 9 | Send 按钮置灰 | 回答期间 Enter 和按钮均不可用 |
+| 10 | 低影响工具自动批准 | read_file/list_dir 等不弹审批窗 |
+
+### 问题修复 (26 项)
+
+| # | 问题 | 根因 |
+|---|------|------|
+| 1 | 顶栏+不能新建session | newSession 不清空聊天/cancel |
+| 2 | View Diff 新建文件不显示 | oldContent!==undefined 过滤了 write_file |
+| 3 | 审批弹窗卡住 | 两步确认+低影响工具也弹窗 |
+| 4 | 面板不自动折叠 | 初始值 true+watch 无 immediate |
+| 5 | Sessions 无标题 | CreateThreadRequest 无 title |
+| 6 | 点击 session 没反应 | TreeView 命令走 postMessage 被丢弃 |
+| 7 | 历史消息不恢复 | TurnRecord 无 prompt 字段 |
+| 8 | 复用 thread 重放历史 | streamEvents since_seq=0 |
+| 9 | 右侧面板没恢复 | resumeSession 只恢复聊天 |
+| 10 | Skills 面板空 | getSkills 在 TUI 未启动时调用 |
+| 11 | Context/Usage 不刷新 | 初始化请求在 TUI 启动前发出 |
+| 12 | 回答后界面卡"运行中" | SSE 提前关闭 turnCompleted 丢失 |
+| 13 | Stop 后工具不停止 | interrupt fire-and-forget |
+| 14 | Stop 后 thinking 不消失 | 前端未即时 hideTyping |
+| 15 | @undefined | 后端缺 relativePath 字段 |
+| 16 | PNG 显示为目录图标 | 路径空格正则截断 |
+| 17 | 粘贴文件对象无完整路径 | webview f.path 不可用 |
+| 18 | 下载覆盖运行中 exe EPERM | 旧文件被占用 |
+| 19 | TUI ANSI 序列刷屏 | stdout ]0;未过滤 |
+| 20 | Works 面板 todos 不更新 | toolName 缓存查找失败 |
+| 21 | tasks 面板需要 YOLO 模式 | task_create 在 agent 下延迟加载 |
+| 22 | agents 面板数量不对 | agentId 提取失败导致去重 |
+| 23 | 模型下拉框位置不统一 | 与 mode 分离在两个位置 |
+| 24 | 垃圾桶和+功能重复 | 垃圾桶只清空聊天 |
+| 25 | sendPrompt 返回后 isProcessing 误重置 | 应在 turnCompleted 重置 |
+| 26 | cancel 无 await 导致工具不停 | interrupt 请求未等待 |
+
+### 架构改进
+
+- 模型下拉框移至 ContextBar，顶栏精简为 ⚙🗜＋
+- 面板自动折叠：内容空时折叠，有内容展开
+- 审批一步操作（移除二次确认）
+- Work+Plan 合并，Plan 不再独立面板
+- 文件引用统一 `@[路径]` 方括号格式
+- interrupt fetch 加 5s 超时，cancel 改为 async
+- 请求队列（已回退）→ 改为 Send 按钮置灰
+
+### 构建
+
+Extension: 84.7 KB, GUI JS: 275 KB, CSS: 36 KB
+
+---
+
+---
+
 ## 2026-05-24 (Phase 4 完成)
 
 ### 审批 UI 重构

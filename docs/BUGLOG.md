@@ -1,6 +1,92 @@
 # Celest — 问题解决记录
 
-> 记录开发过程中遇到的问题、根因、解决方案，避免踩同样的坑。
+## 粘贴文件对象无法获取完整路径 (2026-05-29) ⭐
+
+**现象:** 从 Windows 资源管理器复制文件粘贴到 Celest 输入框，只显示文件名而非完整路径。
+**根因:** VS Code webview 沙箱限制 `cd.files[0].path` 不可用，`cd.types` 只有 `Files`（无 `text/plain`/`text/uri-list`）。
+**修复:** 粘贴纯文件名时先插入 `@[文件名]`，emit 事件到后端用 `vscode.workspace.findFiles` 异步搜索完整路径后替换。`Ctrl+Shift+L` 走扩展 API 可获取完整路径。
+**文件:** `InputBox.vue`、`chatViewProvider.ts`、`App.vue`
+
+---
+
+## 复用 thread 导致历史消息重放 (2026-05-29) ⭐
+
+**现象:** 同一 thread 中发第二条消息时，聊天区瞬间输出全部历史消息，thinking 块丢失。
+**根因:** `streamEvents()` 始终使用 `since_seq=0`，复用 thread 时 TUI 从第一个事件开始重放。
+**修复:** 维护 `_lastEventSeq` 跟踪事件序列号，复用 thread 时在 `sendPrompt` 前通过 `getThreadDetail` 获取 `latest_seq`，`since_seq=latest_seq+1` 只读增量事件。
+**文件:** `tuiProcessManager.ts`
+
+---
+
+## 下载二进制覆盖运行中进程报 EPERM (2026-05-29)
+
+**现象:** 点击"下载 codewhale"报 `EPERM: operation not permitted, unlink`
+**根因:** 旧 `codewhale-tui.exe` 正在运行，无法删除。
+**修复:** 强制下载保存到 `.new` 文件，更新 `binaryPath` 指向新文件，下次启动自动使用。
+**文件:** `binaryDownloader.ts`
+
+---
+
+## Stop 后工具未停止且卡片 pending (2026-05-29) ⭐
+
+**现象:** 点 Stop 后工具卡片仍显示 pending，TUI 端工具继续执行。
+**根因:** `cancel()` 是 fire-and-forget，interrupt 请求未 await；SSE 流 abort 后 TUI 的 `item.failed` 事件无法到达。
+**修复:** `cancel()` 改为 async + 5s 超时；前端 `cancelPendingTools()` 将所有 pending 工具标记为 error；`handleStop` 即时 `hideTyping()`。
+**文件:** `tuiProcessManager.ts`、`ChatView.vue`、`App.vue`
+
+---
+
+## 回答完成界面仍显示"运行中" (2026-05-29)
+
+**现象:** AI 回答完成后 Stop 按钮仍亮着，typing 指示器不消失。
+**根因:** SSE 流可能提前关闭导致 `turnCompleted` 事件丢失，前端 `promptRunning` 永不重置。
+**修复:** `sendPrompt` 成功后兜底发送 `promptEnded`。
+**文件:** `chatViewProvider.ts`
+
+---
+
+## 审批 Allow 后弹窗不消失导致界面卡死 (2026-05-28) ⭐
+
+**现象:** Agent 模式下 write_file 弹窗，选择 1（允许本次），二次确认后弹窗显示 ✓ 但不消失，后续界面卡死。
+**根因:** `chatViewProvider` `case 'approvalDecision'` 在调用 `decideApproval` 后等待 SSE `approval.decided` 事件回传来关闭弹窗。但 SSE 事件可能在弹窗关闭后才到达，或由于网络/时序问题丢失，导致 `showApproval = false` 永远不会触发。
+**修复:** 在调用 `decideApproval` **之前**立即 `postMessage({ type: 'tuiApprovalDecided' })` 关闭弹窗。审批 API 仍然异步调用，但不阻塞 UI。
+**文件:** `src/chatViewProvider.ts`
+
+---
+
+## View Diff 按钮无反应 (2026-05-28)
+
+**现象:** 点击 "View Diff" 按钮没有打开 VS Code diff editor。
+**根因:** `showDiff` 方法使用 `vscode.Uri.parse('celest-diff:...')` 自定义 scheme URI 作为旧版文件，但没有注册对应的 `TextDocumentContentProvider`，VS Code 无法读取内容。
+**修复:** 改用临时文件方案——将 oldContent 和 newContent 分别写入 `globalStorage/diffs/` 目录下的临时文件，再用 `vscode.Uri.file()` 创建 URI。
+**文件:** `src/chatViewProvider.ts:showDiff()`
+
+---
+
+## Markdown 表格无分割线 (2026-05-28)
+
+**现象:** Agent 回复中的 Markdown 表格无边框和分割线。
+**根因:** `global.css` 中没有 table/th/td 样式。
+**修复:** 添加 `border-collapse: collapse` + `th/td { border: 1px solid }` 样式。
+**文件:** `gui/src/global.css`
+
+---
+
+## ContextPanel 标题颜色误导为可点击链接 (2026-05-28)
+
+**现象:** "用量""工作区""MCP" 等分组标题使用蓝色 (`--vscode-textLink-foreground`)，用户尝试点击无效。
+**根因:** VS Code 主题变量 `textLink-foreground` 是链接专用色，应用于纯静态标签会造成误导。
+**修复:** 改为 `var(--vscode-foreground); opacity: 0.6` 灰色标签色。
+**文件:** `gui/src/components/ContextPanel.vue`
+
+---
+
+## UsagePanel acquireVsCodeApi 重复调用 (2026-05-27)
+
+**现象:** Usage 面板始终为空，永远显示 "No usage data available"。
+**根因:** `UsagePanel.vue` 中声明了独立的 `declare function acquireVsCodeApi()`，在 VS Code WebView 中第二次调用返回 undefined，`vscode.postMessage` 静默失败。
+**修复:** 改为 props-driven 组件，由 App.vue 统一管理数据流。
+**文件:** `gui/src/components/UsagePanel.vue`, `gui/src/App.vue`
 
 ---
 

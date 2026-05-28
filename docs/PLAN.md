@@ -414,7 +414,24 @@ Celest 作为 VSCode 扩展需要提供 Skills 管理界面。
 
 ---
 
-## Phase 6.3: 面板对齐 + 打磨 + 发布 ⏳ (进行中)
+## Phase 6.4: 封闭测试修复 ✅ (2026-05-29)
+
+- [x] 文件标签 (File Chips) — `@[路径]` 彩色类型标签
+- [x] 粘贴文件路径格式化 + 异步搜索
+- [x] 面板自动折叠/展开
+- [x] Work+Plan 合并
+- [x] /help 面板精简 (57命令+5快捷键)
+- [x] 模型下拉框移至 ContextBar
+- [x] 审批一步操作 + 低影响工具自动批准
+- [x] Session 删除功能
+- [x] 下载按钮改名 + force 更新 (.new)
+- [x] Send 按钮置灰（回答期间）
+- [x] interrupt async + 超时
+- [x] 26 项问题修复（见 CHANGELOG）
+
+---
+
+## Phase 6.3: 面板对齐 + 打磨 + 发布 ✅ (2026-05-28)
 
 ### 🔍 TUI 0.8.45 右侧面板审计
 
@@ -480,7 +497,7 @@ TUI `SidebarFocus` 枚举定义了 5 种面板：
 **API 覆盖率:** 10→15→26→28→31→**37 / 37 (100%)** ✅  
 **UT:** 46 tests (tuiProcessManager 42 + sessionsTreeProvider 4)  
 **最后更新:** 2026-05-27 (全量 API 适配完成 + Fork + Automations 写操作 + UT)  
-**最后更新:** 2026-05-27 (本轮: ContextBar Git + turn.interrupted + tuiWarning + summary API)
+**最后更新:** 2026-05-28 (封闭测试修复: 审批卡死 + View Diff + 面板双语 + 更多)
 
 ---
 
@@ -502,82 +519,71 @@ TUI 项目从 `deepseek-ai/DeepSeek-TUI` v0.8.40 升级到 `Hmbown/CodeWhale` v0
 
 ---
 
-## 🔍 2026-05-21 审查：DeepSeek-TUI 0.8.40 API 兼容性分析
+## 发布到 VS Code Marketplace 指南
 
-> 基于 `DeepSeek-TUI-new` (v0.8.40, `crates/tui/src/runtime_api.rs`) 的最新 Runtime API 路由。
+当前状态
 
-### ✅ 已验证兼容
+package.json 已就绪：
+- publisher: "TheEastKoi" ✅
+- name: "celest" → 市场 URL: TheEastKoi.celest
+- repository ✅, categories ✅, keywords ✅
 
-| celest 调用 | 实际端点 | 状态 |
-|-------------|---------|------|
-| `GET /health` | `GET /health` | ✅ 一致 |
-| `GET /v1/threads` | `GET /v1/threads` | ✅ 一致 |
-| `POST /v1/threads` | `POST /v1/threads` | ✅ 一致 |
-| `POST /v1/threads/{id}/turns` | `POST /v1/threads/{id}/turns` | ✅ 一致 |
-| `GET /v1/threads/{id}/events?since_seq=0` | `GET /v1/threads/{id}/events?since_seq=0` | ✅ 一致 |
+发布 4 步
 
-### ⚠️ 需要修复
+第一步：安装 vsce
+    npm install -g @vscode/vsce
 
-#### 1. Cancel 机制 — AbortController → interrupt API ✅ 已修复
+第二步：创建 Publisher（首次）
 
-**现状:** celest 用 `AbortController` 暴力断开 SSE 连接来中断生成。服务端可能继续运行。
+1. 打开 https://dev.azure.com/ → 创建组织（如 TheEastKoi）
+2. 右上角头像 → Personal Access Tokens → New Token
+- Organization: All accessible
+- Scope: Marketplace (Publish)
+- 复制 token
+3. 创建 publisher:
+    vsce create-publisher TheEastKoi
+    
+    提示输入 PAT 时粘贴
 
-**实际 API:** `POST /v1/threads/{id}/turns/{turn_id}/interrupt` — 优雅地中断 turn。
+第三步：打包
+    cd celest
+    vsce package
+    # 生成 celest-0.1.0.vsix
 
-**修复 (2026-05-21):** 
-- tuiProcessManager 新增 `_currentThreadId` / `_currentTurnId` 字段
-- sendPrompt() 保存 threadId + turnId
-- cancel() 先发送 `POST .../interrupt`，失败时 fallback to `AbortController.abort()`
-- 导出 `ThreadSummary` 接口供 sessionsTreeProvider 使用
+验证本地安装：
+    code --install-extension celest-0.1.0.vsix
 
-#### 2. ThreadRecord 数据结构不匹配 ✅ 已修复
+第四步：发布
+    vsce publish
+    # 或指定版本
+    vsce publish 0.1.0
 
-**现状:** celest 假设 `preview`/`name`/unix timestamp 字段  
-**实际:** `title`(Option) + ISO 8601 DateTime + `latest_turn_id` + 无 `preview`
+5-10 分钟后可在市场搜索到：
+- https://marketplace.visualstudio.com/items?itemName=TheEastKoi.celest
+- VS Code 内 Ctrl+Shift+X → 搜索 "Celest"
 
-**修复 (2026-05-21):**
-- `ThreadSummary` 接口匹配实际字段（id/title/created_at/updated_at/model/mode）
-- sessionsTreeProvider 使用 `t.title` 显示会话名，fallback 到 `Thread {id[0..8]}`
-- `formatDate()` 方法解析 ISO 8601 → 本地化短日期（`new Date(iso)`）
-- tooltip 增加 Model/Mode 信息
+建议补充的字段（提升市场展示）
 
-#### 3. 未利用的新 API
-
-| 端点 | 用途 | Phase |
-|------|------|-------|
-| `POST /v1/threads/{id}/turns/{turn_id}/interrupt` | 优雅 cancel | 3.x ✅ |
-| `POST /v1/threads/{id}/compact` | 压缩对话 | - |
-| `GET /v1/threads/summary` | 线程摘要 | - |
-| `POST /v1/approvals/{id}` | 审批决策 | 4 ✅ |
-| `GET /v1/runtime/info` | 运行时信息 | 5 ✅ |
-| `GET /v1/workspace/status` | 工作区状态 | - |
-| `PATCH /v1/threads/{id}` | 更新 thread 配置 | 5 ✅ | 
-| `GET /v1/sessions` | 会话列表 | - |
-| `GET /v1/skills` | 技能列表 | - |
-| `GET /v1/usage` | 用量统计 | - |
-| *(新增 v0.8.44+)* | *Skills/MCP/Automations/Sessions CRUD 等 20+ 端点* | *见上方全量审计* |
-
-#### 4. 模型切换方案 (Phase 5 调研) ✅
-
-**TUI 无全局 `config/set` 端点。** 模型切换通过以下方式实现：
-- `CreateThreadRequest.model` — 创建线程时指定模型
-- `StartTurnRequest.model` — 发送 prompt 时指定模型
-- `PATCH /v1/threads/{id}` — 更新现有线程模型 
-- API Key 通过环境变量 `DEEPSEEK_API_KEY` 传递
+    {
+      "icon": "assets/icon.png",
+      "galleryBanner": {
+        "color": "#1a1a2e",
+        "theme": "dark"
+      },
+      "bugs": {
+        "url": "https://github.com/TheEastKoi/celest/issues"
+      },
+      "homepage": "https://github.com/TheEastKoi/celest#readme"
+    }
 
 
----
 
-## 🐛 Phase 3 BUGLOG 索引
 
-| # | 问题 | 状态 |
-|---|------|------|
-| 1 | / 命令选中后出现双 `//` | ✅ 已修复 |
-| 2 | / 命令弹窗滚动条不跟随 | ✅ 已修复 |
-| 3 | 截图粘贴无法获得文件路径 | ✅ 已修复 |
-| 4 | 首屏加载左右分栏空白 | ✅ 已修复 |
-| 5 | VS Code 右键不加 @ | ✅ 已修复 |
-| 6 | 工具调用卡片默认展开 | ✅ 已修复 |
-| 7 | Tab 切换面板布局歧义 | ✅ 已修复（改为左右分栏） |
 
-详见 `docs/BUGLOG.md`。
+发布前待办
+
+- [ ] 生成 assets/icon.png（128x128，可用截图或 SVG 转 PNG）
+- [ ] 创建 Azure DevOps PAT
+- [ ] vsce create-publisher TheEastKoi
+- [ ] vsce package → 本地安装验证
+- [ ] vsce publish

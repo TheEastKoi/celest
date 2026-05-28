@@ -207,7 +207,8 @@ npx vitest run
 | 3 | @ / / panels + session list | ✅ |
 | 4 | Approval + execution + Diff | ✅ |
 | 5 | Settings + model/mode switching + i18n + binary download | ✅ |
-| 6 | Polish + Marketplace publish | ⏳ |
+| 6 | Full API + panels + tests | ✅ |
+| 6.4 | Closed beta fixes (26 bug + 10 feature) | ✅ |
 
 ## 🔄 CodeWhale Migration
 
