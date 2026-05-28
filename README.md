@@ -103,30 +103,119 @@ code --install-extension celest-*.vsix
 
 ## 🚀 使用
 
+### 基本操作
+
 | 操作 | 方式 |
 |------|------|
 | 发送消息 | `Enter` |
-| 提及文件 | `@` → 弹窗选择 |
-| 浏览命令 | `/` → 弹窗选择 |
+| 换行 | `Shift+Enter` |
+| 停止生成 | 点击 `⏹ Stop` |
 | 新建会话 | 顶栏 `＋` |
-| 压缩上下文 | 顶栏 `🗜` 或 `/compact` |
-| 切换模型 | 底部栏下拉框 |
-| 切换模式 | 底部栏 `Agent/Plan/YOLO` |
-| 打开设置 | 顶栏 `⚙` |
+| 压缩上下文 | 顶栏 `🗜` 或输入 `/compact` |
+| 清空聊天 | 输入 `/clear` |
+| 打开帮助 | 输入 `/help` |
+
+### 引用文件
+
+- **`@` 弹窗** — 输入 `@` → 搜索并选择工作区文件
+- **`Ctrl+Shift+L`** — 在资源管理器中选文件 → 快捷键添加
+- **粘贴路径** — 复制文件路径粘贴 → 自动格式化为 `@[路径]`
+- **文件标签** — 聊天区中 `@[路径]` 渲染为彩色类型标签，hover 显示路径，点击打开
+
+### 命令
+
+- **`/` 弹窗** — 输入 `/` → 浏览 57 个命令（支持中文搜索）
+- **常用命令**: `/clear` `/compact` `/help` `/model` `/mode` `/doctor` `/context`
+
+### 模型与模式
+
+- **模型切换** — 底部栏下拉框选择（V4 Pro / V4 Flash 等）
+- **模式切换** — 底部栏点击 Mode 循环：Agent（审批）→ Plan（计划）→ YOLO（自动执行）
+- **审批流程** — Agent 模式下工具执行前弹窗确认，低影响工具自动批准
 
 ---
 
-## 🏗️ 架构
+## 🏗️ 项目结构
 
 ```
-VS Code WebView (Vue 3)  ←→  Extension Host (Node.js)  ←→  CodeWhale TUI (Rust)
-      前端界面                   消息路由+进程管理              AI引擎+工具执行
+celest/
+├── src/                          # 扩展后端 (TypeScript)
+│   ├── extension.ts              # 入口：命令注册 + 视图挂载
+│   ├── chatViewProvider.ts       # WebView 管理 + 消息路由
+│   ├── tuiProcessManager.ts      # TUI 进程 + HTTP/SSE 37 API
+│   ├── sessionsTreeProvider.ts   # 会话 TreeView
+│   ├── secretStorage.ts          # API Key 安全存储
+│   ├── binaryDownloader.ts       # GitHub Release 二进制下载
+│   └── logger.ts                 # 统一日志
+├── gui/src/                      # 前端界面 (Vue 3)
+│   ├── App.vue                   # 根布局 + 分栏 + 审批
+│   ├── i18n.ts                   # 国际化 (zh-CN / en)
+│   ├── helpData.ts               # 57 命令 + 5 快捷键数据
+│   ├── global.css                # 全局样式 + 文件标签
+│   └── components/
+│       ├── ChatView.vue          # 消息列表 + 流式渲染
+│       ├── InputBox.vue          # 输入框 + @提及 + /命令
+│       ├── MarkdownRenderer.vue  # Markdown 渲染 (highlight.js)
+│       ├── ThinkingBlock.vue     # Thinking 折叠块
+│       ├── ContextBar.vue        # 底部栏（模型/模式/Git）
+│       ├── SettingsPanel.vue     # 设置面板（通用/模型/关于）
+│       ├── ApprovalPopup.vue     # 审批弹窗
+│       ├── WorkPanel.vue         # Work 面板（任务+计划）
+│       ├── TasksPanel.vue        # Tasks 面板
+│       ├── AgentsPanel.vue       # Agents 面板
+│       ├── ContextPanel.vue      # Context 面板
+│       ├── SkillsPanel.vue       # Skills 面板
+│       ├── UsagePanel.vue        # Usage 面板
+│       ├── HelpPanel.vue         # Help 面板
+│       ├── AtMentionPopup.vue    # @ 文件弹窗
+│       └── SlashCommandPopup.vue # / 命令弹窗
+├── docs/
+│   ├── PLAN.md                   # 开发计划
+│   ├── INTEGRATION_TEST.md       # 集成测试手册
+│   ├── CHANGELOG.md             # 变更日志
+│   └── BUGLOG.md                 # 问题记录
+├── build.mjs                     # esbuild 构建脚本
+└── package.json
 ```
 
-- **前端**: Vue 3 + Vite + markdown-it + highlight.js
-- **后端**: TypeScript, VS Code Extension API, HTTP/SSE
-- **引擎**: [CodeWhale TUI](https://github.com/Hmbown/CodeWhale) (Rust), 37 个 Runtime API
-- **直连**: 不走任何中转服务器，API Key 本地安全存储
+## 🔧 开发
+
+```bash
+cd celest
+npm install
+
+# 构建
+node build.mjs
+
+# 测试
+npx vitest run
+
+# F5 启动调试
+```
+
+## 📋 开发阶段
+
+| Phase | 内容 | 状态 |
+|-------|------|:----:|
+| 0 | 项目骨架 | ✅ |
+| 1 | TUI 通信 + Vue GUI | ✅ |
+| 2 | 聊天核心强化 (HTTP/SSE) | ✅ |
+| 3 | @ / / 面板 + 会话列表 | ✅ |
+| 4 | 审批 + 执行 + Diff | ✅ |
+| 5 | 设置面板 + 模型/模式 + i18n + 下载 | ✅ |
+| 6 | 全量 API 适配 + 面板对齐 + UT | ✅ |
+| 6.4 | 封闭测试修复 (26 bug + 10 feature) | ✅ |
+
+## 🔄 后台引擎
+
+Celest 基于 [CodeWhale TUI](https://github.com/Hmbown/CodeWhale)，通过 HTTP/SSE 协议与 TUI 的 37 个 Runtime API 通信。TUI 进程由 Celest 自动管理（启动/重启/更新），用户无需手动操作。
+
+| 项目 | 说明 |
+|------|------|
+| 引擎 | CodeWhale TUI v0.8.46 (Rust) |
+| 通信 | HTTP/SSE (localhost:8787) |
+| API 覆盖 | 37/37 (100%) |
+| 自动下载 | GitHub Release → 一键安装 |
 
 ---
 
