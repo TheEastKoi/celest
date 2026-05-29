@@ -78,7 +78,10 @@
         "celest.locale": {
           "type": "string",
           "default": "zh-CN",
-          "enum": ["zh-CN", "en"],
+          "enum": [
+            "zh-CN",
+            "en"
+          ],
           "description": "Celest UI language (zh-CN / en)"
         },
         "celest.provider": {
@@ -89,7 +92,13 @@
         "celest.reasoningEffort": {
           "type": "string",
           "default": "max",
-          "enum": ["off", "low", "medium", "high", "max"],
+          "enum": [
+            "off",
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "description": "Model reasoning depth"
         },
         "celest.hiddenSessions": {

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon.svg" width="96" alt="Celest">
+  <img src="assets/icon.png" width="96" alt="Celest">
 </p>
 
 <h1 align="center">Celest — DeepSeek AI Agent for VS Code</h1>
