@@ -13,6 +13,15 @@
   <a href="README.md">简体中文</a> | English
 </p>
 
+<p align="center">
+  <a href="https://open-vsx.org/extension/TheEastKoi/celest">
+    <img src="https://img.shields.io/badge/Open%20VSX-Download-blue?logo=vscodium" alt="Open VSX">
+  </a>
+  <a href="https://github.com/TheEastKoi/celest">
+    <img src="https://img.shields.io/github/stars/TheEastKoi/celest?style=social" alt="GitHub Stars">
+  </a>
+</p>
+
 ---
 
 ## Why Celest?
@@ -79,10 +88,21 @@
 ### Prerequisites
 
 - **VS Code** ≥ 1.70.0
-- **Node.js** ≥ 18
 - **DeepSeek API Key** ([Get free key](https://platform.deepseek.com))
 
-### Quick Start
+### Option 1: Install from Open VSX Registry (Recommended)
+
+Search for `celest` in VS Code Extensions panel, or download the `.vsix` from [Open VSX Registry](https://open-vsx.org/extension/TheEastKoi/celest) and run:
+
+```bash
+code --install-extension TheEastKoi.celest-*.vsix
+```
+
+Open Celest panel → Set API Key → Start chatting.
+
+### Option 2: Build from Source
+
+- **Node.js** ≥ 18
 
 ```bash
 git clone https://github.com/TheEastKoi/celest.git

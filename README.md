@@ -13,6 +13,15 @@
   <a href="README.en.md">English</a> | 简体中文
 </p>
 
+<p align="center">
+  <a href="https://open-vsx.org/extension/TheEastKoi/celest">
+    <img src="https://img.shields.io/badge/Open%20VSX-Download-blue?logo=vscodium" alt="Open VSX">
+  </a>
+  <a href="https://github.com/TheEastKoi/celest">
+    <img src="https://img.shields.io/github/stars/TheEastKoi/celest?style=social" alt="GitHub Stars">
+  </a>
+</p>
+
 ---
 
 ## 为什么选择 Celest？
@@ -79,10 +88,21 @@
 ### 前置条件
 
 - **VS Code** ≥ 1.70.0
-- **Node.js** ≥ 18
 - **DeepSeek API Key** ([免费获取](https://platform.deepseek.com))
 
-### 快速开始
+### 方式一：从 Open VSX Registry 安装（推荐）
+
+在 VS Code 扩展面板搜索 `celest`，或在 [Open VSX Registry](https://open-vsx.org/extension/TheEastKoi/celest) 页面点击 **Download** 下载 `.vsix` 文件后：
+
+```bash
+code --install-extension TheEastKoi.celest-*.vsix
+```
+
+打开 Celest 面板 → 设置 API Key → 开始使用。
+
+### 方式二：从源码构建
+
+- **Node.js** ≥ 18
 
 ```bash
 git clone https://github.com/TheEastKoi/celest.git
