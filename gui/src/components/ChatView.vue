@@ -12,9 +12,9 @@
             class="message"
             :class="'msg-' + msg.role"
         >
-            <div v-if="msg.role === 'user'" class="user-msg">{{ msg.content }}</div>
+            <div v-if="msg.role === 'user'" class="user-msg" v-html="renderFileChips(msg.content || '')" @click="handleChipClick"></div>
 
-            <div v-else-if="msg.role === 'assistant'" class="assistant-msg">
+            <div v-else-if="msg.role === 'assistant'" class="assistant-msg" @click="handleChipClick">
                 <template v-for="(part, pIdx) in msg.parts" :key="pIdx">
                     <ThinkingBlock
                         v-if="part.type === 'thinking'"
@@ -72,7 +72,64 @@ import ThinkingBlock from './ThinkingBlock.vue';
 // Phase 4: viewDiff 通过 emit 传给父组件（App.vue），避免重复 acquireVsCodeApi
 const emit = defineEmits<{
     viewDiff: [filePath: string, oldContent?: string, newContent?: string];
+    openFile: [filePath: string];
 }>();
+
+declare function acquireVsCodeApi(): any;
+let vscodeApi: any = null;
+try { vscodeApi = acquireVsCodeApi?.(); } catch { /* not in VS Code env */ }
+
+/** 文件类型 → 图标文字 */
+function fileIcon(ext: string): string {
+    const map: Record<string, string> = {
+        md: 'MD', ts: 'TS', tsx: 'TS', js: 'JS', jsx: 'JS',
+        py: 'PY', rs: 'RS', go: 'GO', java: 'JV', c: ' C', cpp: 'C+',
+        json: '{}', yaml: 'Y', yml: 'Y', toml: 'T', xml: '<>',
+        html: '<>', css: '#', scss: '#', less: '#',
+        svg: 'SV', png: 'PN', jpg: 'JP', gif: 'GI', ico: 'IC',
+        vue: 'VU', svelte: 'SV', sh: 'SH', bat: 'BT', ps1: 'PS',
+        txt: 'TX', pdf: 'PD', zip: 'ZP', lock: '🔒',
+    };
+    return map[ext] || ext.slice(0, 3).toUpperCase();
+}
+
+/** 从路径提取图标颜色 */
+function fileColor(ext: string): string {
+    if (['md','txt'].includes(ext)) return '#60a5fa';
+    if (['ts','tsx','js','jsx','vue','svelte'].includes(ext)) return '#34d399';
+    if (['py','rs','go','java','c','cpp','sh','bat','ps1'].includes(ext)) return '#fbbf24';
+    if (['json','yaml','yml','toml','xml'].includes(ext)) return '#f472b6';
+    if (['html','css','scss','less'].includes(ext)) return '#a78bfa';
+    if (['png','jpg','gif','svg','ico'].includes(ext)) return '#fb923c';
+    return '#6b7280';
+}
+
+/** 将文本中的 @path 替换为文件标签 HTML */
+function renderFileChips(text: string): string {
+    if (!text) return '';
+    // 匹配 @ 后跟非空白字符序列（支持 / . - _ 等）
+    const re = /@(\[([^\]]+)\]|([^\s]+))/g;
+    return text.replace(re, (_m, _g1, bracketed: string | undefined, plain: string | undefined) => {
+        const cleanPath = (bracketed || plain || '').replace(/^['"]|['"]$/g, '');
+        if (!cleanPath) return _m;
+        const parts = cleanPath.split(/[/\\]/);
+        const name = parts.pop() || cleanPath;
+        const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() || '' : '';
+        const isDir = !ext && !name.includes('.');
+        const icon = isDir ? '📁' : (ext.slice(0, 3).toUpperCase() || '?');
+        return `<span class="file-chip" data-path="${cleanPath}" title="${cleanPath}"><span class="chip-icon chip-${isDir ? 'dir' : ext}">${icon}</span><span class="chip-name">${name}</span></span>`;
+    });
+}
+
+/** 点击文件标签 → 打开文件 */
+function handleChipClick(e: MouseEvent) {
+    const chip = (e.target as HTMLElement).closest('.file-chip') as HTMLElement;
+    if (!chip) return;
+    const path = chip.dataset.path;
+    if (path && vscodeApi) {
+        vscodeApi.postMessage({ type: 'openFile', path });
+    }
+}
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -332,6 +389,19 @@ function scrollToBottom() {
 
 // ── Exports ───────────────────────────────────────────────────
 
+/** 将所有 pending 工具标记为 cancelled */
+function cancelPendingTools() {
+    for (const msg of messages.value) {
+        if (!msg.parts) continue;
+        for (const part of msg.parts) {
+            if (part.type === 'tool_call' && part.status === 'pending') {
+                part.status = 'error';
+                if (!part.result) part.result = 'Cancelled by user';
+            }
+        }
+    }
+}
+
 defineExpose({
     addUserMessage,
     appendText,
@@ -343,6 +413,7 @@ defineExpose({
     showTyping,
     hideTyping,
     appendTypingChar,
+    cancelPendingTools,
 });
 </script>
 
@@ -503,5 +574,29 @@ defineExpose({
     margin-left: 8px;
     font-size: 12px;
     opacity: 0.7;
+}
+
+/* ── 文件标签 (File Chips) ─────────────────────────────── */
+:deep(.file-chip) {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 0 4px; margin: 0 1px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px; background: var(--vscode-editor-background);
+    cursor: pointer; vertical-align: middle;
+    font-size: 11px; line-height: 1.6;
+}
+:deep(.file-chip:hover) {
+    border-color: var(--vscode-focusBorder);
+    background: var(--vscode-list-hoverBackground);
+}
+:deep(.chip-icon) {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 2px;
+    font-size: 8px; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+}
+:deep(.chip-name) {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 160px; color: var(--vscode-textLink-foreground);
 }
 </style>

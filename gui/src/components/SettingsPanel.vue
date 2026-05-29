@@ -99,6 +99,7 @@
                             <option value="openai">OpenAI</option>
                             <option value="nvidia-nim">NVIDIA NIM</option>
                             <option value="ollama">Ollama</option>
+                            <option value="dashscope">DashScope (阿里云)</option>
                         </select>
                     </div>
                 </div>
@@ -131,6 +132,17 @@
                             <div class="info-item">
                                 <span class="info-key">{{ t('settings.vscodeVersion') }}</span>
                                 <span class="info-val">{{ vscodeVersion }}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-key">OCR (tesseract)</span>
+                                <span :class="['info-val', ocrAvailable ? 'status-ok' : 'status-warn']">
+                                    {{ ocrAvailable ? '✓ 可用' : '✗ 未安装' }}
+                                </span>
+                            </div>
+                            <div v-if="!ocrAvailable" class="info-hint">
+                                图片识别需要安装 Tesseract OCR。
+                                <a href="https://github.com/UB-Mannheim/tesseract/wiki" target="_blank">下载 Windows 版</a>，
+                                安装时勾选中文语言包（chi_sim）。
                             </div>
                         </div>
 
@@ -168,6 +180,7 @@ const props = defineProps<{
     apiKeyStored: boolean;
     tuiVersion: string;
     tuiConnected: boolean;
+    ocrAvailable: boolean;
     extVersion: string;
     nodeVersion: string;
     vscodeVersion: string;
@@ -214,6 +227,20 @@ watch(() => props.config, (newConfig) => {
         });
     }
 }, { deep: true });
+
+// provider 切换时自动联动 Base URL
+const PROVIDER_BASE_URLS: Record<string, string> = {
+    deepseek: 'https://api.deepseek.com',
+    'deepseek-cn': 'https://api.deepseek.com',
+    openai: 'https://api.openai.com/v1',
+    'nvidia-nim': 'https://integrate.api.nvidia.com/v1',
+    ollama: 'http://localhost:11434/v1',
+    dashscope: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+};
+watch(() => localConfig.provider, (newProvider) => {
+    const url = PROVIDER_BASE_URLS[newProvider];
+    if (url) localConfig.apiBase = url;
+});
 
 function handleSave() {
     // 即时应用语言
@@ -269,6 +296,7 @@ function browseBinary() {
 .info-item { display: flex; justify-content: space-between; padding: 6px 10px; background: var(--vscode-textBlockQuote-background); border-radius: 4px; }
 .info-key { font-size: 12px; color: var(--vscode-descriptionForeground); }
 .info-val { font-size: 12px; font-weight: 600; }
+.info-hint { grid-column: 1 / -1; font-size: 11px; color: var(--vscode-descriptionForeground); padding: 4px 0; }
 .about-actions { display: flex; gap: 8px; margin-top: 8px; }
 
 .settings-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--vscode-sideBarSectionHeader-border); }

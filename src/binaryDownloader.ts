@@ -117,15 +117,18 @@ export class BinaryDownloader {
     }
 
     /** 下载二进制文件 */
-    async download(): Promise<string> {
+    async download(force = false): Promise<string> {
         const binPath = this.getLocalBinaryPath();
         
-        // 如果已存在，直接返回
-        if (fs.existsSync(binPath)) {
+        // 如果已存在且不强制，直接返回
+        if (!force && fs.existsSync(binPath)) {
             logger.info('[BinaryDownloader] binary already exists:', binPath);
             this._onProgress.fire({ stage: 'complete', percent: 100, message: 'Already exists' });
             return binPath;
         }
+        
+        // 强制下载时保存到新文件（旧文件可能正在运行）
+        const targetPath = force ? (binPath + '.new') : binPath;
 
         try {
             this._onProgress.fire({ stage: 'downloading', percent: 0, message: 'Fetching release info...' });
@@ -144,7 +147,7 @@ export class BinaryDownloader {
             const reader = resp.body?.getReader();
             if (!reader) throw new Error('No response body');
             
-            const tmpPath = binPath + '.tmp';
+            const tmpPath = targetPath + '.tmp';
             const chunks: Uint8Array[] = [];
             let downloaded = 0;
             
@@ -165,34 +168,34 @@ export class BinaryDownloader {
             
             this._onProgress.fire({ stage: 'extracting', percent: 85, message: 'Extracting...' });
             
-            fs.renameSync(tmpPath, binPath);
+            fs.renameSync(tmpPath, targetPath);
             
             if (os.platform() !== 'win32') {
-                fs.chmodSync(binPath, 0o755);
+                fs.chmodSync(targetPath, 0o755);
             }
             
             this._onProgress.fire({ stage: 'verifying', percent: 95, message: 'Verifying...' });
             
-            if (!fs.existsSync(binPath)) {
+            if (!fs.existsSync(targetPath)) {
                 throw new Error('Binary file not found after download');
             }
             
-            const stat = fs.statSync(binPath);
+            const stat = fs.statSync(targetPath);
             if (stat.size < 1000) {
                 throw new Error('Binary file too small');
             }
             
             this._onProgress.fire({ stage: 'complete', percent: 100, message: 'Download complete' });
-            logger.info('[BinaryDownloader] download complete:', binPath, `(${stat.size} bytes)`);
+            logger.info('[BinaryDownloader] download complete:', targetPath, `(${stat.size} bytes)`);
             
-            await vscode.workspace.getConfiguration('celest').update('binaryPath', binPath, true);
+            await vscode.workspace.getConfiguration('celest').update('binaryPath', targetPath, true);
             
-            return binPath;
+            return targetPath;
         } catch (err: any) {
             logger.error('[BinaryDownloader] download failed:', err.message);
             this._onProgress.fire({ stage: 'failed', percent: 0, message: err.message });
             // 清理临时文件
-            try { fs.unlinkSync(binPath + '.tmp'); } catch { /* */ }
+            try { fs.unlinkSync(targetPath + '.tmp'); } catch { /* */ }
             throw err;
         }
     }

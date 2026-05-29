@@ -222,6 +222,7 @@ export class TuiProcessManager {
     private _currentAbort?: AbortController;
     private _currentThreadId?: string;
     private _currentTurnId?: string;
+    private _lastEventSeq: number = 0;
 
     private _onEvent = new vscode.EventEmitter<RuntimeEvent>();
     readonly onEvent = this._onEvent.event;
@@ -266,7 +267,6 @@ export class TuiProcessManager {
 
         const controller = new AbortController();
         this._currentAbort = controller;
-        this._currentThreadId = undefined;
         this._currentTurnId = undefined;
         const base = `http://127.0.0.1:${this._port}/v1`;
 
@@ -275,23 +275,41 @@ export class TuiProcessManager {
             const model = this._config.model || 'deepseek-v4-flash';
             const mode = this._config.mode || 'agent';
 
-            const tResp = await fetch(`${base}/threads`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model,
-                    mode,
-                    workspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '.',
-                    allow_shell: true,
-                    trust_mode: false,
-                    auto_approve: this._autoApprove,
-                }),
-                signal: controller.signal,
-            });
-            const thread = await tResp.json() as any;
-            const threadId: string = thread.id;
-            this._currentThreadId = threadId;
-            logger.info(`[Thread] created: ${threadId} model=${model} auto_approve=${this._autoApprove}`);
+            let threadId: string;
+            if (this._currentThreadId) {
+                // 复用已恢复的 thread — 先同步 latest_seq，避免重放历史
+                threadId = this._currentThreadId;
+                logger.info(`[Thread] reusing: ${threadId}`);
+                try {
+                    const detail = await this.getThreadDetail(threadId);
+                    if (detail && typeof detail.latest_seq === 'number') {
+                        this._lastEventSeq = detail.latest_seq;
+                        logger.info(`[Thread] synced _lastEventSeq to ${this._lastEventSeq}`);
+                    }
+                } catch { /* ignore — use existing seq */ }
+            } else {
+                // 创建新 thread
+                const tResp = await fetch(`${base}/threads`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model,
+                        mode,
+                        workspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '.',
+                        allow_shell: true,
+                        trust_mode: false,
+                        auto_approve: this._autoApprove,
+                    }),
+                    signal: controller.signal,
+                });
+                const thread = await tResp.json() as any;
+                threadId = thread.id;
+                this._currentThreadId = threadId;
+                logger.info(`[Thread] created: ${threadId}`);
+                // TUI 的 CreateThreadRequest 不支持 title 字段，通过 PATCH 设置
+                const titleOk = await this.updateThreadConfig(threadId, { title: text.slice(0, 60) });
+                if (!titleOk) logger.warn(`[Thread] PATCH title failed for ${threadId}`);
+            }
 
             const turnPromise = fetch(`${base}/threads/${threadId}/turns`, {
                 method: 'POST',
@@ -359,16 +377,17 @@ export class TuiProcessManager {
 
     /** 列出已知 thread（会话列表）— 匹配 TUI 0.8.40 GET /v1/threads */
     async listThreads(): Promise<ThreadSummary[]> {
-        if (!this._started) return [];
+        if (!this._started) { logger.info('[Threads] TUI not started yet'); return []; }
         try {
             const base = `http://127.0.0.1:${this._port}/v1`;
-            const resp = await fetch(`${base}/threads`, {
+            const resp = await fetch(`${base}/threads?include_archived=true&limit=100`, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' },
             });
-            if (!resp.ok) return [];
+            if (!resp.ok) { logger.warn(`[Threads] HTTP ${resp.status}`); return []; }
             const threads: any[] = await resp.json();
-            if (!Array.isArray(threads)) return [];
+            if (!Array.isArray(threads)) { logger.warn('[Threads] response is not an array'); return []; }
+            logger.info(`[Threads] listThreads → ${threads.length} threads`);
             return threads.map(t => ({
                 id: t.id || '',
                 title: t.title || undefined,
@@ -379,7 +398,8 @@ export class TuiProcessManager {
                 latest_turn_id: t.latest_turn_id,
                 archived: t.archived,
             }));
-        } catch {
+        } catch (err: any) {
+            logger.warn(`[Threads] listThreads error: ${err.message}`);
             return [];
         }
     }
@@ -398,16 +418,27 @@ export class TuiProcessManager {
     }
 
     /** 取消当前生成 */
-    cancel(): void {
-        logger.info('[Thread] cancelling...');
-        if (this._currentThreadId && this._currentTurnId) {
-            const url = `http://127.0.0.1:${this._port}/v1/threads/${this._currentThreadId}/turns/${this._currentTurnId}/interrupt`;
-            fetch(url, { method: 'POST' })
-                .then(r => {
-                    if (r.ok) logger.info('[Thread] interrupt sent successfully');
-                    else logger.info(`[Thread] interrupt returned HTTP ${r.status}`);
-                })
-                .catch(e => logger.info('[Thread] interrupt request failed:', e.message));
+    async cancel(): Promise<void> {
+        const threadId = this._currentThreadId;
+        const turnId = this._currentTurnId;
+        logger.info(`[Thread] cancelling... thread=${threadId} turn=${turnId}`);
+        if (threadId && turnId) {
+            const url = `http://127.0.0.1:${this._port}/v1/threads/${threadId}/turns/${turnId}/interrupt`;
+            try {
+                const ctrl = new AbortController();
+                const timeout = setTimeout(() => ctrl.abort(), 5000);
+                const resp = await fetch(url, { method: 'POST', signal: ctrl.signal });
+                clearTimeout(timeout);
+                if (resp.ok) {
+                    logger.info(`[Thread] interrupt OK for ${turnId}`);
+                } else {
+                    logger.warn(`[Thread] interrupt HTTP ${resp.status} for ${turnId}`);
+                }
+            } catch (e: any) {
+                logger.warn(`[Thread] interrupt request failed: ${e.message}`);
+            }
+        } else {
+            logger.warn(`[Thread] cannot interrupt: threadId=${threadId} turnId=${turnId}`);
         }
         this._currentAbort?.abort();
     }
@@ -462,11 +493,13 @@ export class TuiProcessManager {
 
     /** 列出可用 Skills (GET /v1/skills) */
     async listSkills(): Promise<SkillsListResponse | null> {
-        if (!this._started) return null;
+        if (!this._started) { logger.info('[Skills] TUI not started'); return null; }
         try {
             const resp = await fetch(`http://127.0.0.1:${this._port}/v1/skills`);
             if (!resp.ok) { logger.warn(`[Skills] HTTP ${resp.status}`); return null; }
-            return await resp.json() as SkillsListResponse;
+            const data = await resp.json() as SkillsListResponse;
+            logger.info(`[Skills] got ${Array.isArray(data.skills) ? data.skills.length : 0} skills from ${data.directory}`);
+            return data;
         } catch (err: any) {
             logger.warn(`[Skills] fetch failed: ${err.message}`);
             return null;
@@ -643,8 +676,22 @@ export class TuiProcessManager {
                 body: JSON.stringify(body),
             });
             if (!resp.ok) { logger.warn(`[Thread] resume HTTP ${resp.status}`); return null; }
-            return await resp.json() as ThreadSummary;
+            const result = await resp.json() as ThreadSummary;
+            // 标记为活跃 thread，后续 prompt 复用此 thread
+            this._currentThreadId = id;
+            logger.info(`[Thread] resumed ${id} — future prompts will reuse this thread`);
+            return result;
         } catch (err: any) { logger.warn(`[Thread] resume failed: ${err.message}`); return null; }
+    }
+
+    /** 获取线程详情 — GET /v1/threads/{id} */
+    async getThreadDetail(id: string): Promise<ThreadDetail | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/${encodeURIComponent(id)}`);
+            if (!resp.ok) { logger.warn(`[Thread] getThreadDetail HTTP ${resp.status}`); return null; }
+            return await resp.json() as ThreadDetail;
+        } catch (err: any) { logger.warn(`[Thread] getThreadDetail failed: ${err.message}`); return null; }
     }
 
     // ── Phase 6.2: Tasks CRUD ──
@@ -851,8 +898,9 @@ export class TuiProcessManager {
     // ── 内部实现 ────────────────────────────────────────────
 
     private async streamEvents(threadId: string, signal: AbortSignal): Promise<void> {
-        const url = `http://127.0.0.1:${this._port}/v1/threads/${threadId}/events?since_seq=0`;
-        logger.info(`[SSE] connecting to ${url}`);
+        const sinceSeq = this._lastEventSeq > 0 ? this._lastEventSeq + 1 : 0;
+        const url = `http://127.0.0.1:${this._port}/v1/threads/${threadId}/events?since_seq=${sinceSeq}`;
+        logger.info(`[SSE] connecting to ${url} (since_seq=${sinceSeq})`);
 
         const resp = await fetch(url, { signal });
         if (!resp.ok) throw new Error(`SSE connect failed: HTTP ${resp.status}`);
@@ -892,6 +940,11 @@ export class TuiProcessManager {
     private dispatchRawEvent(eventName: string, data: string): void {
         let payload: any = {};
         try { payload = JSON.parse(data); } catch { return; }
+
+        // 跟踪事件 seq，避免复用 thread 时重放历史
+        if (typeof payload.seq === 'number' && payload.seq > this._lastEventSeq) {
+            this._lastEventSeq = payload.seq;
+        }
 
         // Phase 4: 审批事件优先处理
         if (eventName === 'approval.required') {
@@ -993,20 +1046,20 @@ export class TuiProcessManager {
             }
             // Phase 6.3: Sub-agent events
             case 'agent.spawned': {
-                const agentId = p.id || payload.agent_id || '';
-                const prompt = p.prompt || '';
+                const agentId = p.id || p.agent_id || payload.agent_id || payload.id || '';
+                const prompt = p.prompt || p.objective || p.message || '';
                 this._onEvent.fire({ event: 'agentSpawned', itemId: agentId, delta: prompt });
                 break;
             }
             case 'agent.progress': {
-                const agentId = p.id || payload.agent_id || '';
-                const status = p.status || payload.status || '';
+                const agentId = p.id || p.agent_id || payload.agent_id || payload.id || '';
+                const status = p.status || p.delta || payload.status || '';
                 this._onEvent.fire({ event: 'agentProgress', itemId: agentId, delta: status });
                 break;
             }
             case 'agent.completed': {
-                const agentId = p.id || payload.agent_id || '';
-                const result = p.result || payload.result || '';
+                const agentId = p.id || p.agent_id || payload.agent_id || payload.id || '';
+                const result = p.result || p.summary || payload.result || '';
                 this._onEvent.fire({ event: 'agentCompleted', itemId: agentId, delta: result });
                 break;
             }
@@ -1066,7 +1119,10 @@ export class TuiProcessManager {
             if (text.trim()) logger.info('TUI stderr:', text.trim());
         });
         this.process.stdout?.on('data', (d: Buffer) => {
-            logger.info('TUI stdout:', d.toString().trim());
+            const text = d.toString().trim();
+            if (text && !text.startsWith('\x1b]0;') && !text.startsWith(']0;')) {
+                logger.info('TUI stdout:', text);
+            }
         });
 
         this.process.on('error', (err) => logger.error('TUI spawn error:', err.message));

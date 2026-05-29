@@ -42,7 +42,8 @@
                 >
                     ⏹ Stop
                 </button>
-                <button class="send-btn" @click="handleSend" :disabled="!inputText.trim() || disabled">
+                
+                <button class="send-btn" @click="handleSend" :disabled="!inputText.trim() || disabled || promptRunning">
                     Send
                 </button>
             </div>
@@ -60,12 +61,16 @@ import type { SlashCommand } from './SlashCommandPopup.vue';
 const props = defineProps<{
     disabled?: boolean;
     showStop?: boolean;
+    promptRunning?: boolean;
     files: FileItem[];
+    workspaceRoot?: string;
 }>();
 
 const emit = defineEmits<{
     send: [prompt: string];
     stop: [];
+    pasteFiles: [names: string[]];
+    pasteImage: [base64: string, name: string];
 }>();
 
 const inputText = ref('');
@@ -100,7 +105,8 @@ function handleAtSelect(item: FileItem) {
     if (atTriggerPos >= 0 && atTriggerPos <= inputText.value.length) {
         const before = inputText.value.slice(0, atTriggerPos);
         const after = inputText.value.slice(inputRef.value?.selectionStart || atTriggerPos + atFilterText.value.length + 1);
-        inputText.value = before + '@' + item.relativePath + ' ' + after;
+        // 始终用 @[path] 格式，确保 TUI 能正确识别为附件
+        inputText.value = before + '@[' + item.relativePath + '] ' + after;
     }
     closeAtPopup();
     inputRef.value?.focus();
@@ -143,8 +149,8 @@ function handleKeydown(e: KeyboardEvent) {
     }
 
     if (showSlashPopup.value) {
-        if (e.key === 'ArrowDown') { e.preventDefault(); slashPopupRef.value?.moveSelection(1); return; }
-        if (e.key === 'ArrowUp') { e.preventDefault(); slashPopupRef.value?.moveSelection(-1); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); slashPopupRef.value?.moveDown(); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); slashPopupRef.value?.moveUp(); return; }
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             const sel = slashPopupRef.value?.getSelected();
@@ -154,8 +160,9 @@ function handleKeydown(e: KeyboardEvent) {
         if (e.key === 'Escape') { e.preventDefault(); closeSlashPopup(); return; }
     }
 
-    // Enter 发送 / Shift+Enter 换行
+    // Enter 发送 / Shift+Enter 换行（回答中禁止发送）
     if (e.key === 'Enter' && !e.shiftKey) {
+        if (props.promptRunning) return;
         e.preventDefault();
         handleSend();
         return;
@@ -202,21 +209,59 @@ function handlePaste(e: ClipboardEvent) {
     const cd = e.clipboardData;
     if (!cd) return;
 
+    // 0. 文件对象粘贴：图片走 blob，非图片尝试提取路径
+    if (cd.files && cd.files.length > 0) {
+        const hasImage = cd.types.some((t: string) => t.startsWith('image/'));
+        if (!hasImage) {
+            e.preventDefault();
+            const text = cd.getData('text/plain')?.trim() || '';
+            // 如果有 text/plain 且是路径/文件名，格式化插入
+            if (text) {
+                const lines = text.split(/[\r\n]+/).filter(Boolean).map(l => l.trim());
+                if (lines.some(l => isFilePath(l) || isFileName(l))) {
+                    const formatted = lines.map(l => {
+                        if (isFilePath(l)) return '@[' + l + ']';
+                        if (isFileName(l)) return '@[' + l + '] ';
+                        return l;
+                    }).join(' ');
+                    insertAtCursor(formatted);
+                    const nameOnly = lines.filter(l => isFileName(l));
+                    if (nameOnly.length > 0) emit('pasteFiles', nameOnly);
+                    return;
+                }
+            }
+            // 无 text/plain → 插入文件名，异步搜索
+            const names: string[] = [];
+            for (let i = 0; i < cd.files.length; i++) {
+                const f = cd.files[i] as any;
+                names.push(f.name);
+                insertAtCursor('@[' + f.name + '] ');
+            }
+            if (names.length > 0) emit('pasteFiles', names);
+            return;
+        }
+    }
+
     const plain = cd.getData('text/plain')?.trim();
 
-    // 1. 有文本内容 — 直接用，如果是路径则自动加 @
+    // 1. 有文本内容 — 如果是路径或纯文件名，自动加 @[path]
     if (plain) {
         if (plain.includes('\n')) {
             const lines = plain.split('\n').map(l => l.trim()).filter(Boolean);
-            if (lines.length > 1 && lines.every(isFilePath)) {
+            if (lines.length > 1 && lines.every(l => isFilePath(l) || isFileName(l))) {
                 e.preventDefault();
-                insertAtCursor(lines.map(l => '@' + l).join('\n'));
+                const root = props.workspaceRoot || '';
+                insertAtCursor(lines.map(l => formatPastedPath(l, root)).join('\n'));
                 return;
             }
         }
-        if (isFilePath(plain)) {
+        if (isFilePath(plain) || isFileName(plain)) {
             e.preventDefault();
-            insertAtCursor('@' + plain + ' ');
+            insertAtCursor(formatPastedPath(plain, props.workspaceRoot || ''));
+            // 纯文件名 → 后端异步搜索完整路径然后替换
+            if (isFileName(plain)) {
+                emit('pasteFiles', [plain]);
+            }
             return;
         }
         return; // 普通文本，浏览器正常粘贴
@@ -257,11 +302,7 @@ async function savePastedImage(file: File) {
     const reader = new FileReader();
     reader.onload = () => {
         const base64 = (reader.result as string).split(',')[1];
-        vscode?.postMessage({
-            type: 'pasteImage',
-            fileName: file.name || `paste_${Date.now()}.png`,
-            data: base64,
-        });
+        emit('pasteImage', base64, file.name || `paste_${Date.now()}.png`);
     };
     reader.readAsDataURL(file);
 }
@@ -278,6 +319,16 @@ function isFilePath(s: string): boolean {
     return /^[A-Za-z]:[\\/]/.test(s) ||
         (s.includes('\\') && s.length > 3) ||
         (s.startsWith('/') && s.length > 2);
+}
+
+function isFileName(s: string): boolean {
+    return /^[^\\/:*?"<>|]+\.[a-zA-Z0-9]{1,10}$/.test(s);
+}
+
+function formatPastedPath(raw: string, _root: string): string {
+    if (isFilePath(raw)) return '@[' + raw + '] ';
+    if (isFileName(raw)) return '@[' + raw + '] '; // 文件名 → 异步搜索补全完整路径
+    return raw;
 }
 
 function autoResize() {
@@ -400,4 +451,5 @@ function insertAtCursor(text: string) {
 }
 .send-btn:hover { background: var(--vscode-button-hoverBackground); }
 .send-btn:disabled { opacity: 0.5; cursor: default; }
+
 </style>

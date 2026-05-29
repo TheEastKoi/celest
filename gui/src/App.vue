@@ -3,18 +3,16 @@
         <header class="app-header">
             <span class="app-title">🌙 Celest</span>
             <div class="header-actions">
-                <select v-model="currentModel" class="model-select" @change="handleModelChange" title="Switch model">
-                    <option v-for="m in availableModels" :key="m.id" :value="m.id">{{ m.name }}</option>
-                </select>
                 <button class="header-btn" @click="openSettings" title="Settings">⚙</button>
-                <button class="header-btn" @click="handleClearChat" title="Clear chat">🗑</button>
-                <button class="header-btn" @click="handleNewWindow" title="Open in new window">↗</button>
+                <button class="header-btn" @click="handleCompact" title="压缩上下文 (/compact)">🗜</button>
+                <button class="header-btn" @click="handleNewSession" title="新建会话">＋</button>
             </div>
         </header>
         <div class="main-split" v-if="tuiReady" ref="splitRef">
             <div class="split-left" :style="{ flex: `0 0 ${leftWidth}px` }"><ChatView ref="chatRef" @viewDiff="handleViewDiff" /></div>
             <div class="split-handle" @mousedown="startResize" :class="{ dragging: isResizing }"></div>
             <div class="split-right" :style="{ flex: `0 0 ${rightWidth}px` }">
+                <!-- 工作流 Work -->
                 <div class="right-panel">
                     <div class="panel-header" @click="panelWorkOpen = !panelWorkOpen">
                         <span class="panel-arrow">{{ panelWorkOpen ? '▼' : '▶' }}</span>
@@ -23,6 +21,7 @@
                     </div>
                     <div v-show="panelWorkOpen" class="panel-body"><WorkPanel :todos="todos" :plan="plan" /></div>
                 </div>
+                <!-- 任务流 Tasks -->
                 <div class="right-panel">
                     <div class="panel-header" @click="panelTasksOpen = !panelTasksOpen">
                         <span class="panel-arrow">{{ panelTasksOpen ? '▼' : '▶' }}</span>
@@ -30,41 +29,43 @@
                     </div>
                     <div v-show="panelTasksOpen" class="panel-body"><TasksPanel :tasks="taskList" :loading="tasksLoading" /></div>
                 </div>
+                <!-- 子代理 Agents -->
+                <div class="right-panel">
+                    <div class="panel-header" @click="panelAgentsOpen = !panelAgentsOpen">
+                        <span class="panel-arrow">{{ panelAgentsOpen ? '▼' : '▶' }}</span>
+                        <span class="panel-label">🤖 {{ t('panel.agents') }}</span>
+                        <span v-if="agentsList.length > 0" class="panel-badge">{{ agentsList.length }}</span>
+                    </div>
+                    <div v-show="panelAgentsOpen" class="panel-body"><AgentsPanel :agents="agentsList" /></div>
+                </div>
+                <!-- 技能 Skills -->
                 <div class="right-panel">
                     <div class="panel-header" @click="panelSkillsOpen = !panelSkillsOpen">
                         <span class="panel-arrow">{{ panelSkillsOpen ? '▼' : '▶' }}</span>
-                        <span class="panel-label">🧩 {{ t('panel.skills') || 'Skills' }}</span>
+                        <span class="panel-label">🧩 {{ t('panel.skills') }}</span>
                         <span v-if="skillsList.length > 0" class="panel-badge">{{ skillsList.length }}</span>
                     </div>
                     <div v-show="panelSkillsOpen" class="panel-body">
                         <SkillsPanel :skills="skillsList" :warnings="skillsWarnings" :loading="skillsLoading" @toggle="handleSkillToggle" />
                     </div>
                 </div>
-                <div class="right-panel">
-                    <div class="panel-header" @click="panelUsageOpen = !panelUsageOpen">
-                        <span class="panel-arrow">{{ panelUsageOpen ? '▼' : '▶' }}</span>
-                        <span class="panel-label">📈 Usage</span>
-                    </div>
-                    <div v-show="panelUsageOpen" class="panel-body"><UsagePanel :usage="contextUsage" :loading="usageLoading" @refresh="handleUsageRefresh" /></div>
-                </div>
-                <div class="right-panel">
-                    <div class="panel-header" @click="panelAgentsOpen = !panelAgentsOpen">
-                        <span class="panel-arrow">{{ panelAgentsOpen ? '▼' : '▶' }}</span>
-                        <span class="panel-label">🤖 {{ t('panel.agents') || 'Agents' }}</span>
-                        <span v-if="agentsList.length > 0" class="panel-badge">{{ agentsList.length }}</span>
-                    </div>
-                    <div v-show="panelAgentsOpen" class="panel-body">
-                        <AgentsPanel :agents="agentsList" />
-                    </div>
-                </div>
+                <!-- 上下文 Context -->
                 <div class="right-panel">
                     <div class="panel-header" @click="panelContextOpen = !panelContextOpen">
                         <span class="panel-arrow">{{ panelContextOpen ? '▼' : '▶' }}</span>
-                        <span class="panel-label">📊 {{ t('panel.context') || 'Context' }}</span>
+                        <span class="panel-label">🔍 {{ t('panel.context') }}</span>
                     </div>
                     <div v-show="panelContextOpen" class="panel-body">
                         <ContextPanel :usage="contextUsage" :workspace="contextWorkspace" :mcpCount="mcpCount" />
                     </div>
+                </div>
+                <!-- 统计用量 Usage -->
+                <div class="right-panel">
+                    <div class="panel-header" @click="panelUsageOpen = !panelUsageOpen">
+                        <span class="panel-arrow">{{ panelUsageOpen ? '▼' : '▶' }}</span>
+                        <span class="panel-label">📈 {{ t('panel.usage') }}</span>
+                    </div>
+                    <div v-show="panelUsageOpen" class="panel-body"><UsagePanel :usage="contextUsage" :loading="usageLoading" @refresh="handleUsageRefresh" /></div>
                 </div>
                 <HelpPanel ref="helpPanelRef" />
             </div>
@@ -72,9 +73,9 @@
         <main v-if="!tuiReady" class="chat-area"><ChatView ref="chatRef" @viewDiff="handleViewDiff" /></main>
         <footer class="input-area">
             <div v-if="!tuiReady" class="connecting-banner">{{ connectingText }}</div>
-            <InputBox ref="inputBoxRef" @send="handleSend" @stop="handleStop" :disabled="!tuiReady" :showStop="promptRunning" :files="fileList" />
+            <InputBox ref="inputBoxRef" @send="handleSend" @stop="handleStop" @pasteFiles="handlePasteFiles" @pasteImage="handlePasteImage" :disabled="!tuiReady" :showStop="promptRunning" :promptRunning="promptRunning" :files="fileList" :workspaceRoot="workspaceRoot" />
         </footer>
-        <ContextBar :modelName="currentModelName" :mode="currentMode" :turnCount="turnCount" :sessionId="sessionId" :gitBranch="gitBranch" :gitDirty="gitDirty" @cycleMode="cycleMode" />
+        <ContextBar :modelId="currentModel" :availableModels="availableModels" :mode="currentMode" :turnCount="turnCount" :sessionId="sessionId" :gitBranch="gitBranch" :gitDirty="gitDirty" @cycleMode="cycleMode" @switchModel="handleModelSwitch" />
 
         <ApprovalPopup
             :visible="showApproval"
@@ -98,6 +99,7 @@
         :extVersion="extVersion"
         :nodeVersion="nodeVersion"
         :vscodeVersion="vscodeVersion"
+        :ocrAvailable="ocrAvailable"
         @close="showSettings = false"
         @save="handleSettingsSave"
         @downloadBinary="handleDownloadBinary"
@@ -138,22 +140,23 @@ const
     leftWidth = ref(300),
     rightWidth = ref(300),
     isResizing = ref(false),
-    panelWorkOpen = ref(true),
-    panelTasksOpen = ref(true),
-    panelSkillsOpen = ref(true),
+    panelWorkOpen = ref(false),
+    panelTasksOpen = ref(false),
+    panelSkillsOpen = ref(false),
     skillsList = ref<any[]>([]),
     skillsWarnings = ref<string[]>([]),
     skillsLoading = ref(false),
-    panelAgentsOpen = ref(true),
-    panelContextOpen = ref(true),
+    panelAgentsOpen = ref(false),
+    panelContextOpen = ref(false),
     agentsList = ref<any[]>([]),
     contextUsage = ref<any>(null),
     contextWorkspace = ref<any>(null),
     mcpCount = ref<number | null>(null),
     usageLoading = ref(false),
-    panelUsageOpen = ref(true),
+    panelUsageOpen = ref(false),
     gitBranch = ref(''),
     gitDirty = ref(false),
+    workspaceRoot = ref(''),
     promptRunning = ref(false),
     requestSeq = ref(0),
     currentModel = ref('deepseek-v4-flash'),
@@ -183,16 +186,13 @@ const showSettings = ref(false),
     extVersion = ref('0.1.0'),
     nodeVersion = ref(''),
     vscodeVersion = ref(''),
+    ocrAvailable = ref(false),
     connectingText = ref(t('connecting'));
 
-const currentModelName = computed(() => {
-    const m = availableModels.find(m => m.id === currentModel.value);
-    return m ? m.name : currentModel.value;
-});
 const incompleteTodoCount = computed(() => todos.value.filter((t: any) => t.status === 'in_progress' || t.status === 'pending').length);
 
 function openSettings() { showSettings.value = true; vscode?.postMessage({ type: 'getSettings' }); }
-function handleModelChange() { vscode?.postMessage({ type: 'switchModel', model: currentModel.value }); }
+function handleModelSwitch(id: string) { currentModel.value = id; vscode?.postMessage({ type: 'switchModel', model: id }); }
 function cycleMode() { const modes = ['agent','plan','yolo']; const i = modes.indexOf(currentMode.value); currentMode.value = modes[(i+1)%modes.length]; vscode?.postMessage({ type: 'switchMode', mode: currentMode.value }); }
 function handleSettingsSave(config: any) {
     vscode?.postMessage({ type: 'saveSettings', config });
@@ -200,15 +200,18 @@ function handleSettingsSave(config: any) {
     if (config.defaultModel) currentModel.value = config.defaultModel;
     if (config.locale) { setLocale(config.locale as 'zh-CN' | 'en'); connectingText.value = t('connecting'); }
 }
-function handleDownloadBinary() { vscode?.postMessage({ type: 'downloadBinary' }); }
+function handleDownloadBinary() { vscode?.postMessage({ type: 'downloadBinary', force: true }); }
 function handleCheckUpdate() { vscode?.postMessage({ type: 'checkUpdate' }); }
 function handleBrowseBinary() { vscode?.postMessage({ type: 'browseBinary' }); }
-function handleClearChat() { vscode?.postMessage({ type: 'clear', method: 'clear' }); chatRef.value?.clearMessages(); }
-function handleNewWindow() { vscode?.postMessage({ type: 'openNewWindow' }); }
+function handleNewSession() { chatRef.value?.clearMessages(); vscode?.postMessage({ type: 'newSession' }); }
+function handleCompact() { vscode?.postMessage({ type: 'compactThread' }); }
+function handleClearChat() { chatRef.value?.clearMessages(); vscode?.postMessage({ type: 'clearChat' }); }
 function handleSkillToggle(name: string, enabled: boolean) { vscode?.postMessage({ type: 'toggleSkill', name, enabled }); }
 function fetchSkills() { skillsLoading.value = true; vscode?.postMessage({ type: 'getSkills' }); }
 function handleUsageRefresh(groupBy: string) { usageLoading.value = true; vscode?.postMessage({ type: 'getUsage', group_by: groupBy }); }
 function handleSend(text: string) {
+    // 预处理 @路径：如果路径中有空格且没用方括号，自动加 @[path]
+    text = text.replace(/@([^\s\[]\S*(?:\s+\S+)+)/g, (_m, p) => `@[${p}]`);
     // 拦截本地 UI 命令
     const t = text.trim();
     if (t === '/clear') { handleClearChat(); return; }
@@ -221,10 +224,16 @@ function handleSend(text: string) {
     chatRef.value?.showTyping();
     vscode?.postMessage({ type: 'sendPrompt', prompt: text, seq: requestSeq.value, model: currentModel.value });
 }
-function handleStop() { vscode?.postMessage({ type: 'cancelPrompt' }); promptRunning.value = false; }
+function handleStop() { vscode?.postMessage({ type: 'cancelPrompt' }); promptRunning.value = false; chatRef.value?.hideTyping(); }
+function handlePasteFiles(names: string[]) {
+    vscode?.postMessage({ type: 'resolveFiles', names });
+}
+function handlePasteImage(base64: string, name: string) {
+    vscode?.postMessage({ type: 'pasteImage', fileName: name, data: base64 });
+}
 function handleViewDiff(filePath: string, oldContent: string, newContent: string) { vscode?.postMessage({ type: 'viewDiff', filePath, oldContent, newContent }); }
-function handleApprovalDecision(details: { decision: string; remember: boolean }) {
-    vscode?.postMessage({ type: 'approvalDecision', approvalId: approvalId.value, decision: details.decision, remember: details.remember });
+function handleApprovalDecision(decision: 'allow' | 'deny', remember: boolean) {
+    vscode?.postMessage({ type: 'approvalDecision', approvalId: approvalId.value, decision, remember });
 }
 
 function initSplitWidth() {
@@ -259,8 +268,8 @@ function parseTodoWrite(raw: unknown) {
         const list = Array.isArray(obj.todos) ? obj.todos : obj;
         if (Array.isArray(list)) {
             todos.value = list.filter((t: any) => t && typeof t === 'object').map((t: any) => ({
-                content: String(t.content || ''),
-                status: String(t.status || 'pending'),
+                content: String(t.content || t.task || t.title || t.name || t.description || t.text || ''),
+                status: String(t.status || t.state || 'pending'),
             }));
         }
     } catch { /* */ }
@@ -292,6 +301,17 @@ function parseUpdatePlan(raw: unknown) {
     } catch { /* */ }
 }
 
+// ── 面板自动折叠：内容为空时收起，有内容时展开 ──
+watch([todos, () => plan.value.steps.length], () => {
+    const hasContent = todos.value.length > 0 || plan.value.steps.length > 0;
+    panelWorkOpen.value = hasContent;
+}, { immediate: true });
+watch(taskList, (t) => { panelTasksOpen.value = t.length > 0; }, { immediate: true });
+watch(agentsList, (a) => { panelAgentsOpen.value = a.length > 0; }, { immediate: true });
+watch(skillsList, (s) => { panelSkillsOpen.value = s.length > 0; }, { immediate: true });
+watch(contextUsage, (c) => { panelContextOpen.value = c != null; }, { immediate: true });
+watch(contextUsage, (c) => { panelUsageOpen.value = c != null; }, { immediate: true });
+
 onMounted(async () => {
     await nextTick(); await nextTick(); initSplitWidth();
     if (splitRef.value) { new ResizeObserver(() => initSplitWidth()).observe(splitRef.value); }
@@ -312,21 +332,50 @@ onMounted(async () => {
             const { callId, output, status, toolName } = msg.toolResult || {};
             const tn = toolName || ''; const o = output;
             chatRef.value?.updateToolResult(callId || '', o ?? '', status || 'success');
-            if (tn === 'todo_write' || tn === 'checklist_write' || tn === 'checklist_add' || tn === 'checklist_update') parseTodoWrite(o);
-            if (tn === 'update_plan') parseUpdatePlan(o);
+            parseTodoWrite(o);
+            parseUpdatePlan(o);
             break;
         }
         case 'tuiToolProgress': chatRef.value?.updateToolResult(msg.toolResult?.callId || '', msg.toolResult?.output ?? '', 'pending'); break;
         case 'promptStarted': promptRunning.value = true; turnCount.value++; break;
-        case 'promptEnded': promptRunning.value = false; chatRef.value?.hideTyping(); vscode?.postMessage({ type: 'getUsage', group_by: 'day' }); vscode?.postMessage({ type: 'getWorkspaceStatus' }); break;
+        case 'promptEnded': promptRunning.value = false; chatRef.value?.hideTyping(); chatRef.value?.cancelPendingTools(); vscode?.postMessage({ type: 'getUsage', group_by: 'day' }); vscode?.postMessage({ type: 'getWorkspaceStatus' }); break;
         case 'promptError': promptRunning.value = false; chatRef.value?.hideTyping(); chatRef.value?.appendText(`\n\n⚠️ Error: ${msg.error}`); break;
         case 'fileList': fileList.value = Array.isArray(msg.files) ? msg.files : []; break;
-        case 'addAtMention': inputBoxRef.value?.insertAtCursor('@' + (msg.path || '') + ' '); break;
+        case 'addAtMention': inputBoxRef.value?.insertAtCursor('@[' + (msg.path || '') + '] '); break;
+        case 'filesResolved':
+            if (msg.paths) {
+                for (const [name, fullPath] of Object.entries(msg.paths)) {
+                    inputBoxRef.value?.replaceText('@[' + name + ']', '@[' + (fullPath as string) + ']');
+                }
+            }
+            break;
         case 'pasteImageResult': inputBoxRef.value?.replaceText('@[' + (msg.fileName || '') + '] ', '@' + (msg.filePath || '') + ' '); break;
         case 'clearChat': chatRef.value?.clearMessages(); break;
         case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; agentsList.value = []; contextUsage.value = null; contextWorkspace.value = null; break;
+        case 'loadHistory': {
+            const history = msg.history;
+            if (Array.isArray(history)) {
+                for (const h of history) {
+                    if (h.role === 'user') {
+                        chatRef.value?.addUserMessage(String(h.content || ''));
+                    } else if (h.role === 'assistant') {
+                        chatRef.value?.appendText(String(h.content || ''));
+                    }
+                }
+            }
+            break;
+        }
         case 'tuiConnected': tuiReady.value = true; sessionId.value = msg.sessionId || ''; vscode?.postMessage({ type: 'getTasks' }); vscode?.postMessage({ type: 'getSkills' }); vscode?.postMessage({ type: 'getWorkspaceStatus' }); vscode?.postMessage({ type: 'getMcpStatus' }); break;
-        case 'tuiStatus': tuiReady.value = msg.status === 'connected'; break;
+        case 'tuiStatus':
+            tuiReady.value = msg.status === 'connected';
+            if (msg.status === 'connected') {
+                vscode?.postMessage({ type: 'getSkills' });
+                vscode?.postMessage({ type: 'getTasks' });
+                vscode?.postMessage({ type: 'getWorkspaceStatus' });
+                vscode?.postMessage({ type: 'getMcpStatus' });
+                vscode?.postMessage({ type: 'getUsage', group_by: 'day' });
+            }
+            break;
         case 'tasksList': taskList.value = Array.isArray(msg.tasks) ? msg.tasks : []; tasksLoading.value = false; break;
         // Phase 6.1: Skills
         case 'skillsList': {
@@ -337,6 +386,7 @@ onMounted(async () => {
         }
         case 'workspaceStatus': {
             if (msg.status) {
+                workspaceRoot.value = msg.status.workspace || '';
                 gitBranch.value = msg.status.branch || '';
                 const dirty = (msg.status.staged || 0) + (msg.status.unstaged || 0) + (msg.status.untracked || 0);
                 gitDirty.value = dirty > 0;
@@ -386,6 +436,7 @@ onMounted(async () => {
         case 'settingsData':
             settingsConfig.value = msg.config || settingsConfig.value;
             apiKeyStored.value = msg.apiKeyStored ?? false;
+            ocrAvailable.value = msg.ocrAvailable ?? false;
             tuiVersion.value = msg.tuiVersion || '';
             extVersion.value = msg.extVersion || '0.1.0';
             nodeVersion.value = msg.nodeVersion || '';
@@ -409,6 +460,7 @@ onMounted(async () => {
 <style scoped>
 .celest-app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .app-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border); font-size: 14px; font-weight: 600; flex-shrink: 0; }
+
 .app-title { font-size: 14px; }
 .header-actions { display: flex; gap: 4px; align-items: center; }
 .header-btn { background: none; border: none; color: var(--vscode-descriptionForeground); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 4px; line-height: 1; }

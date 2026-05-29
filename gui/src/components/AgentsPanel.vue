@@ -9,7 +9,7 @@
             <div v-for="agent in agents" :key="agent.id" class="agent-item">
                 <div class="agent-header">
                     <span class="agent-status-dot" :class="'dot-' + agent.status"></span>
-                    <span class="agent-name">{{ agent.id.slice(0, 12) }}</span>
+                    <span class="agent-name">{{ agent.prompt?.slice(0, 30) || agent.id.slice(0, 12) }}</span>
                     <span class="agent-status-label">{{ statusLabel(agent.status) }}</span>
                 </div>
                 <div class="agent-prompt" v-if="agent.prompt">{{ agent.prompt.slice(0, 80) }}</div>

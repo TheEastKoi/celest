@@ -5,3 +5,54 @@ body {
     background: var(--vscode-editor-background);
     overflow: hidden;
 }
+
+/* Markdown 表格分割线 */
+table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    width: 100%;
+}
+th, td {
+    border: 1px solid var(--vscode-panel-border);
+    padding: 4px 8px;
+    text-align: left;
+    font-size: 13px;
+}
+th {
+    background: var(--vscode-textBlockQuote-background);
+    font-weight: 600;
+}
+
+/* ── 文件标签 File Chips (v-html 全局) ── */
+.file-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 6px 1px 4px; margin: 0 2px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 5px; 
+    background: var(--vscode-textBlockQuote-background);
+    cursor: pointer; vertical-align: middle;
+    font-size: 12px; line-height: 1.5;
+}
+.file-chip:hover {
+    border-color: var(--vscode-textLink-foreground);
+    background: var(--vscode-list-hoverBackground);
+}
+.chip-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 3px;
+    font-size: 9px; font-weight: 700; color: #fff;
+    flex-shrink: 0; background: #6b7280;
+}
+.chip-icon.chip-dir { background: #fbbf24; font-size: 12px; }
+.chip-icon.chip-md,  .chip-icon.chip-txt  { background: #60a5fa; }
+.chip-icon.chip-ts,  .chip-icon.chip-tsx, .chip-icon.chip-js,  .chip-icon.chip-jsx, .chip-icon.chip-vue, .chip-icon.chip-svelte { background: #34d399; }
+.chip-icon.chip-py,  .chip-icon.chip-rs,  .chip-icon.chip-go,  .chip-icon.chip-java, .chip-icon.chip-c, .chip-icon.chip-cpp, .chip-icon.chip-sh, .chip-icon.chip-bat, .chip-icon.chip-ps1 { background: #fbbf24; }
+.chip-icon.chip-json, .chip-icon.chip-yaml, .chip-icon.chip-yml, .chip-icon.chip-toml, .chip-icon.chip-xml { background: #f472b6; }
+.chip-icon.chip-html, .chip-icon.chip-css, .chip-icon.chip-scss, .chip-icon.chip-less { background: #a78bfa; }
+.chip-icon.chip-png, .chip-icon.chip-jpg, .chip-icon.chip-gif, .chip-icon.chip-svg, .chip-icon.chip-ico { background: #fb923c; }
+.chip-icon.chip-pdf { background: #f87171; }
+.chip-icon.chip-zip, .chip-icon.chip-lock { background: #6b7280; }
+.chip-name {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 160px; color: var(--vscode-textLink-foreground);
+}

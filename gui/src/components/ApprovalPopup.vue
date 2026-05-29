@@ -31,14 +31,14 @@
                 <pre class="params-content">{{ params }}</pre>
             </div>
 
-            <!-- 选项列表（未确认时显示） -->
-            <div v-if="!confirmed" class="approval-options">
+            <!-- 选项列表（点击/Enter 直接执行） -->
+            <div v-if="!decided" class="approval-options">
                 <div
                     v-for="(opt, idx) in options"
                     :key="idx"
                     class="approval-option"
                     :class="{ 'option-focused': focusedIdx === idx }"
-                    @click="focusOption(idx)"
+                    @click="commitOption(idx)"
                     @mouseenter="focusedIdx = idx"
                 >
                     <span class="option-num">{{ idx + 1 }}</span>
@@ -48,7 +48,7 @@
             </div>
 
             <!-- 确认区（选中后按 Enter 进入确认态） -->
-            <div v-if="confirmed && !decided" class="approval-confirm">
+            <div v-if="false" class="approval-confirm">
                 <div class="confirm-banner">
                     ⏎ 确认 {{ pendingLabel }}
                 </div>
@@ -165,7 +165,7 @@ function focusOption(idx: number) {
     if (decided.value) return;
     focusedIdx.value = idx;
     // 鼠标点击直接进入确认
-    enterConfirm(idx);
+    commitOption(idx);
 }
 
 function enterConfirm(idx: number) {
@@ -217,7 +217,7 @@ function handleKeydown(e: KeyboardEvent) {
         focusedIdx.value = (focusedIdx.value + 1) % options.length;
     } else if (e.key === 'Enter') {
         e.preventDefault();
-        enterConfirm(focusedIdx.value);
+        commitOption(focusedIdx.value);
     } else if (e.key === 'Escape') {
         e.preventDefault();
         // Esc 在未确认时关闭弹窗？不关闭，只有倒计时和明确选择才关闭
@@ -225,7 +225,7 @@ function handleKeydown(e: KeyboardEvent) {
         e.preventDefault();
         const idx = Number(e.key) - 1;
         focusedIdx.value = idx;
-        enterConfirm(idx);
+        commitOption(idx);
     }
 }
 </script>

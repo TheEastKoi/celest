@@ -30,16 +30,21 @@ export function activate(context: vscode.ExtensionContext) {
         // SecretStore 可能尚未可用
     });
 
-    // ── WebView 聊天面板 ──
-    const chatProvider = new ChatViewProvider(context, tuiManager);
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider('celest.chatPanel', chatProvider)
-    );
-
     // ── 会话列表 TreeView ──
     const sessionsProvider = new SessionsTreeProvider(tuiManager);
+    const sessionsTree = vscode.window.createTreeView('celest.sessionsList', {
+        treeDataProvider: sessionsProvider,
+    });
+    context.subscriptions.push(sessionsTree);
+    // 展开时自动刷新
+    sessionsTree.onDidChangeVisibility((e) => {
+        if (e.visible) sessionsProvider.refresh();
+    });
+
+    // ── WebView 聊天面板 ──
+    const chatProvider = new ChatViewProvider(context, tuiManager, () => sessionsProvider.refresh());
     context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('celest.sessionsList', sessionsProvider)
+        vscode.window.registerWebviewViewProvider('celest.chatPanel', chatProvider)
     );
 
     // ── Phase 5: 二进制下载器 ──
@@ -54,6 +59,13 @@ export function activate(context: vscode.ExtensionContext) {
             chatProvider.postMessage({ type: 'openSettings' });
         }),
         vscode.commands.registerCommand('celest.focusInput', () => chatProvider.postMessage({ type: 'focusInput' })),
+        vscode.commands.registerCommand('celest.resumeSession', (threadId?: string) => {
+            if (threadId) chatProvider.resumeSession(threadId);
+        }),
+        vscode.commands.registerCommand('celest.deleteSession', (item?: vscode.TreeItem) => {
+            const id = (item as any)?.id;
+            if (id) sessionsProvider.deleteSession(id);
+        }),
         vscode.commands.registerCommand('celest.addToChat', (uri?: vscode.Uri) => chatProvider.addToChat(uri)),
         vscode.commands.registerCommand('celest.clearChat', () => chatProvider.clearChat()),
         vscode.commands.registerCommand('celest.applyCode', () => chatProvider.postMessage({ type: 'applyCode' })),

@@ -3,7 +3,7 @@
         <div class="panel-header" @click="open = !open">
             <span>{{ open ? '▼' : '▶' }}</span>
             <span>❓ Help</span>
-            <span class="panel-badge">64 斜杠命令 | 43 快捷键</span>
+            <span class="panel-badge">{{ commandCount }} 命令 | {{ keyCount }} 快捷键</span>
         </div>
         <div v-show="open" class="panel-body">
             <div class="help-view">
@@ -25,16 +25,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
-import { getHelpSections, type HelpSection } from '../helpData';
+import { ref, computed, onMounted } from 'vue';
+import { getHelpSections, SLASH_COMMANDS, type HelpSection } from '../helpData';
 
 const sections = ref<HelpSection[]>([]);
 const open = ref(true);
+
+const commandCount = computed(() => SLASH_COMMANDS.length);
+const keyCount = computed(() => {
+    const sec = sections.value.find(s => s.title.includes('Keybindings'));
+    return sec ? sec.commands.length : 0;
+});
 
 function show() {
     sections.value = getHelpSections();
     open.value = true;
 }
+
+onMounted(() => { sections.value = getHelpSections(); });
 
 defineExpose({ show });
 </script>

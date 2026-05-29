@@ -5,8 +5,24 @@ import { logger } from './logger';
 export class SessionsTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     private _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+    private _hiddenIds = new Set<string>();
 
-    constructor(private tuiManager: TuiProcessManager) {}
+    constructor(private tuiManager: TuiProcessManager) {
+        // 从持久化存储恢复隐藏列表
+        const stored = vscode.workspace.getConfiguration('celest').get<string[]>('hiddenSessions') || [];
+        stored.forEach(id => this._hiddenIds.add(id));
+    }
+
+    /** 隐藏会话（伪删除） */
+    async deleteSession(id: string): Promise<void> {
+        this._hiddenIds.add(id);
+        await vscode.workspace.getConfiguration('celest').update(
+            'hiddenSessions',
+            [...this._hiddenIds],
+            vscode.ConfigurationTarget.Global,
+        );
+        this.refresh();
+    }
 
     refresh(): void {
         this._onDidChangeTreeData.fire(undefined);
@@ -18,11 +34,11 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<vscode.Tree
 
     async getChildren(): Promise<vscode.TreeItem[]> {
         try {
-            const threads = await this.tuiManager.getThreadSummary(50);
+            const threads = await this.tuiManager.listThreads();
             if (threads.length === 0) {
                 return [this.makePlaceholder('No sessions yet. Send a prompt to create one.')];
             }
-            return threads.map(t => {
+            return threads.filter(t => !this._hiddenIds.has(t.id)).map(t => {
                 // 使用 title，fallback 到 Thread ID 前 8 位
                 const label = t.title || `Thread ${t.id.slice(0, 8)}`;
                 // 解析 ISO 8601 时间为本地化显示
@@ -32,8 +48,8 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<vscode.Tree
                 item.tooltip = `${label}\nModel: ${t.model || 'unknown'}\nMode: ${t.mode || 'unknown'}\nUpdated: ${date}`;
                 item.description = date;
                 item.command = {
-                    command: 'celest.focusInput',
-                    title: 'Open Session',
+                    command: 'celest.resumeSession',
+                    title: 'Resume Session',
                     arguments: [t.id],
                 };
                 item.contextValue = 'session';

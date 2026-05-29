@@ -13,6 +13,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _promptSeq = 0;
     private _toolCache = new Map<string, { toolName: string; args: Record<string, unknown> }>();
     private _taskPollTimer: ReturnType<typeof setInterval> | null = null;
+    private _lastTasks: any[] = [];
     private _binaryDownloader: BinaryDownloader;
 
     private static readonly TOOL_META: Record<string, { type: string; impact: string }> = {
@@ -38,6 +39,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     constructor(
         private context: vscode.ExtensionContext,
         private tuiManager: TuiProcessManager,
+        private _onSessionChange?: () => void,
     ) {
         this._binaryDownloader = new BinaryDownloader(context);
 
@@ -108,7 +110,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'turnCompleted':
                     this.postMessage({ type: 'promptEnded' });
                     this.pushTasks();
-                    this.stopTaskPolling();
+                    if (!this.hasActiveTasks()) {
+                        this.stopTaskPolling();
+                    }
+                    this._onSessionChange?.();
                     break;
                 // Phase 6.1: 新 SSE 事件
                 case 'sandboxDenied':
@@ -145,11 +150,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         this.tuiManager.onStatusChange(({ status }) => {
             this.postMessage({ type: 'tuiStatus', status });
+            if (status === 'connected') {
+                this._onSessionChange?.();
+            }
         });
 
         this.tuiManager.onApprovalRequired((approval) => {
             if (this.tuiManager.autoApprove) {
                 logger.info(`[Approval] skipped popup (autoApprove=true) for ${approval.tool_name}`);
+                return;
+            }
+            // 低影响/只读工具自动批准（问题3-5：避免卡在审批弹窗）
+            const toolMeta = ChatViewProvider.TOOL_META[approval.tool_name];
+            if (toolMeta && toolMeta.impact.startsWith('低')) {
+                logger.info(`[Approval] auto-allowed low-impact tool: ${approval.tool_name}`);
+                this.tuiManager.decideApproval(approval.id, 'allow', false);
                 return;
             }
             let cached: { toolName: string; args: Record<string, unknown> } | undefined;
@@ -160,7 +175,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 }
             }
             const args = cached?.args || {};
-            const meta = ChatViewProvider.TOOL_META[approval.tool_name] || { type: approval.tool_name, impact: '未知' };
+            const meta = toolMeta || { type: approval.tool_name, impact: '未知' };
             const argSummary = Object.keys(args).length > 0
                 ? Object.entries(args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join('\n')
                 : '';
@@ -185,13 +200,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     postMessage(message: unknown): void { this._view?.webview.postMessage(message); }
-    newSession(): void { this.postMessage({ type: 'newSession' }); }
+    async newSession(): Promise<void> {
+        // Cancel any active turn
+        await this.tuiManager.cancel();
+        // Reset current thread so next prompt creates a new one
+        (this.tuiManager as any)._currentThreadId = undefined;
+        (this.tuiManager as any)._lastEventSeq = 0;
+        // Clear chat messages
+        this.postMessage({ type: 'clearChat' });
+        // Reset panel data
+        this.postMessage({ type: 'newSession' });
+        // Refresh sessions tree
+        this._onSessionChange?.();
+    }
 
     addToChat(uri?: vscode.Uri): void {
         if (uri) {
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-            const rel = wsRoot ? path.relative(wsRoot, uri.fsPath) : uri.fsPath;
-            this.postMessage({ type: 'addAtMention', path: rel });
+            // 使用绝对路径，TUI 可直接解析
+            this.postMessage({ type: 'addAtMention', path: uri.fsPath });
             return;
         }
         const editor = vscode.window.activeTextEditor;
@@ -201,6 +227,82 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     clearChat(): void { this.postMessage({ type: 'clearChat' }); }
+
+    /** 恢复历史会话（由 TreeView 命令直接调用，不走 webview 中转） */
+    async resumeSession(threadId: string): Promise<void> {
+        logger.info(`[Session] resuming thread ${threadId}`);
+        const thread = await this.tuiManager.resumeThread(threadId);
+        if (!thread) {
+            logger.warn(`[Session] resumeThread returned null for ${threadId}`);
+            return;
+        }
+        logger.info(`[Session] resumed thread ${threadId}, loading history...`);
+        // 清空当前消息
+        this.postMessage({ type: 'clearChat' });
+        this.postMessage({ type: 'newSession' });
+        // 加载历史消息
+        const detail = await this.tuiManager.getThreadDetail(threadId);
+        if (!detail) {
+            logger.warn(`[Session] getThreadDetail returned null for ${threadId}`);
+        } else if (!Array.isArray(detail.turns)) {
+            logger.warn(`[Session] detail.turns is not an array for ${threadId}`);
+        } else {
+            logger.info(`[Session] got ${detail.turns.length} turns, ${Array.isArray(detail.items) ? detail.items.length : 0} items`);
+            const history: any[] = [];
+            const itemMap = new Map<string, any>();
+            let lastChecklistOutput: string | null = null;
+            let lastPlanOutput: string | null = null;
+            if (Array.isArray(detail.items)) {
+                for (const item of detail.items) {
+                    const it = item as any;
+                    if (it.id) itemMap.set(it.id, it);
+                    // 收集最后一个 checklist_write 和 update_plan 输出
+                    if (it.kind === 'tool_call' && it.detail) {
+                        if (it.summary && (it.summary.includes('checklist_write') || it.summary.includes('todo_write'))) {
+                            lastChecklistOutput = it.detail;
+                        } else if (it.summary && it.summary.includes('update_plan')) {
+                            lastPlanOutput = it.detail;
+                        }
+                    }
+                }
+            }
+            // 恢复 Work 面板
+            if (lastChecklistOutput) {
+                this.postMessage({ type: 'tuiToolResult', toolResult: { callId: '', output: lastChecklistOutput, status: 'success', toolName: 'checklist_write' } });
+            }
+            if (lastPlanOutput) {
+                this.postMessage({ type: 'tuiToolResult', toolResult: { callId: '', output: lastPlanOutput, status: 'success', toolName: 'update_plan' } });
+            }
+            for (const turn of detail.turns) {
+                const t = turn as any;
+                const userText = String(t.input_summary || '');
+                if (userText) {
+                    history.push({ role: 'user', content: userText });
+                }
+                if (Array.isArray(t.item_ids)) {
+                    for (const itemId of t.item_ids) {
+                        const it = itemMap.get(itemId);
+                        if (it && it.kind === 'agent_message' && it.detail) {
+                            history.push({ role: 'assistant', content: String(it.detail) });
+                        }
+                    }
+                }
+            }
+            if (history.length > 0) {
+                logger.info(`[Session] sending ${history.length} history messages`);
+                this.postMessage({ type: 'loadHistory', history });
+            } else {
+                logger.warn(`[Session] no history extracted for ${threadId}`);
+            }
+        }
+        // 恢复 Usage / Context 面板
+        const usage = await this.tuiManager.getUsage({ group_by: 'day' });
+        if (usage) this.postMessage({ type: 'usageData', usage });
+        const ws = await this.tuiManager.getWorkspaceStatus();
+        if (ws) this.postMessage({ type: 'workspaceStatus', status: ws });
+        this.pushTasks();
+        this._onSessionChange?.();
+    }
 
     private async handleWebviewMessage(msg: any): Promise<void> {
         switch (msg.type) {
@@ -230,12 +332,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     break;
                 }
 
+                const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+                const enrichedPrompt = this.enrichPromptWithFiles(prompt, wsRoot);
                 this.startTaskPolling();
                 const mySeq = ++this._promptSeq;
-                if (mySeq > 1) this.tuiManager.cancel();
+                if (mySeq > 1) await this.tuiManager.cancel();
                 try {
-                    await this.tuiManager.sendPrompt(prompt);
+                    await this.tuiManager.sendPrompt(enrichedPrompt);
                     if (mySeq !== this._promptSeq) return;
+                    this.postMessage({ type: 'promptEnded' });
                 } catch (err: any) {
                     if (mySeq !== this._promptSeq) return;
                     this.postMessage({ type: 'promptError', error: err.message });
@@ -243,7 +348,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 break;
             }
             case 'cancelPrompt':
-                this.tuiManager.cancel();
+                await this.tuiManager.cancel();
                 this.stopTaskPolling();
                 this.postMessage({ type: 'promptEnded' });
                 break;
@@ -254,13 +359,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             // Phase 4: 审批决策
             case 'approvalDecision':
                 if (msg.approvalId && msg.decision) {
+                    // 先关闭弹窗，避免卡死
+                    this.postMessage({ type: 'tuiApprovalDecided', approvalId: msg.approvalId, decision: msg.decision });
                     const result = await this.tuiManager.decideApproval(
                         msg.approvalId,
                         msg.decision,
                         msg.remember === true,
                     );
                     if (!result) {
-                        this.postMessage({ type: 'promptError', error: 'Approval decision failed' });
+                        logger.warn(`[Approval] decision failed for ${msg.approvalId}`);
                     }
                 }
                 break;
@@ -279,9 +386,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     tuiVersion = runtimeInfo.version;
                 }
                 
-                this.postMessage({
-                    type: 'settingsData',
-                    config: {
+                    // OCR 检测
+                    let ocrAvailable = false;
+                    try { cp.execSync('tesseract --version', { stdio: 'ignore' }); ocrAvailable = true; } catch { }
+
+                    this.postMessage({
+                        type: 'settingsData',
+                        ocrAvailable,
+                        config: {
                         apiBase,
                         defaultModel: config.get<string>('defaultModel') || 'deepseek-v4-flash',
                         autoDownloadBinary: config.get<boolean>('autoDownloadBinary') ?? true,
@@ -376,7 +488,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         this.postMessage({ type: 'downloadProgress', ...progress });
                     });
                     
-                    const binPath = await this._binaryDownloader.download();
+                    const binPath = await this._binaryDownloader.download(msg.force === true);
                     this.postMessage({ type: 'downloadComplete', binPath });
                     vscode.window.showInformationMessage(`Celest: Binary downloaded to ${binPath}`);
                 } catch (err: any) {
@@ -418,6 +530,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             case 'newThreadClicked':
                 this.newSession();
                 break;
+            case 'newSession':
+                this.newSession();
+                break;
+            case 'resumeSession':
+                if (msg.threadId) {
+                    await this.resumeSession(msg.threadId);
+                }
+                break;
+            case 'clearChat':
+                this.clearChat();
+                break;
             case 'clear':
                 this.clearChat();
                 break;
@@ -425,7 +548,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 if (msg.text) vscode.env.clipboard.writeText(msg.text);
                 break;
             case 'viewDiff':
-                if (msg.filePath && msg.oldContent !== undefined) {
+                if (msg.filePath) {
                     this.showDiff(msg.filePath, msg.oldContent, msg.newContent);
                 }
                 break;
@@ -434,6 +557,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 this.postMessage({ type: 'fileList', files: this.getWorkspaceFiles(wsRoot) });
                 break;
             }
+            case 'openFile':
+                if (msg.path) {
+                    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+                    const fullPath = path.resolve(wsRoot, msg.path);
+                    if (fs.existsSync(fullPath)) {
+                        vscode.commands.executeCommand('vscode.open', vscode.Uri.file(fullPath));
+                    } else {
+                        vscode.window.showWarningMessage(`File not found: ${msg.path}`);
+                    }
+                }
+                break;
+            case 'resolveFiles':
+                if (Array.isArray(msg.names) && msg.names.length > 0) {
+                    const resolved: Record<string, string> = {};
+                    for (const name of msg.names) {
+                        const uris = await vscode.workspace.findFiles('**/' + name, null, 1);
+                        if (uris.length > 0) resolved[name] = uris[0].fsPath;
+                    }
+                    this.postMessage({ type: 'filesResolved', paths: resolved });
+                }
+                break;
             case 'pasteImage':
                 if (msg.filePath) {
                     this.postMessage({ type: 'pasteImageResult', filePath: msg.filePath, fileName: path.basename(msg.filePath) });
@@ -518,11 +662,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     // ── 辅助方法 ──
 
-    private async showDiff(filePath: string, oldContent: string, newContent: string): Promise<void> {
+    private async showDiff(filePath: string, oldContent?: string, newContent?: string): Promise<void> {
         try {
-            const oldUri = vscode.Uri.parse(`celest-diff:${filePath}.old`);
-            const newUri = vscode.Uri.file(filePath);
-            await vscode.commands.executeCommand('vscode.diff', oldUri, newUri, `${filePath} (Changes)`);
+            const tmpDir = path.join(this.context.globalStorageUri.fsPath, 'diffs');
+            if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+            const baseName = path.basename(filePath);
+            const oldFile = path.join(tmpDir, `${baseName}.old`);
+            const newFile = path.join(tmpDir, `${baseName}.new`);
+            fs.writeFileSync(oldFile, oldContent ?? '', 'utf-8');
+            fs.writeFileSync(newFile, newContent ?? '', 'utf-8');
+            const oldUri = vscode.Uri.file(oldFile);
+            const newUri = vscode.Uri.file(newFile);
+            const label = oldContent === undefined && newContent !== undefined
+                ? `${baseName} (New File)`
+                : `${baseName} (Changes)`;
+            await vscode.commands.executeCommand('vscode.diff', oldUri, newUri, label);
         } catch (err: any) {
             logger.error('showDiff failed:', err.message);
         }
@@ -543,7 +697,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     if (entry.isDirectory()) {
                         walk(fullPath, depth + 1);
                     } else {
-                        results.push({ path: relPath, name: entry.name });
+                        results.push({ path: relPath, name: entry.name, relativePath: fullPath, absolutePath: fullPath });
                     }
                 }
             };
@@ -568,10 +722,80 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private async pushTasks(): Promise<void> {
         try {
             const tasks = await this.tuiManager.listTasks();
+            this._lastTasks = Array.isArray(tasks) ? tasks : [];
             this.postMessage({ type: 'tasksList', tasks });
         } catch (err: any) {
             logger.warn('[Tasks] pushTasks error:', err.message);
         }
+    }
+
+    /** 解析 prompt 中的 @[path] 引用，文本文件内容前置，图片提示 AI 读取 */
+    private enrichPromptWithFiles(prompt: string, wsRoot: string): string {
+        const re = /@\[([^\]]+)\]/g;
+        let match;
+        const fileContexts: string[] = [];
+        const seen = new Set<string>();
+        while ((match = re.exec(prompt)) !== null) {
+            const filePath = match[1].trim();
+            if (seen.has(filePath)) continue;
+            seen.add(filePath);
+            let fullPath = path.resolve(wsRoot, filePath);
+            // 如果路径不存在且只有文件名（无目录分隔符），在工作区内搜索
+            if (!fs.existsSync(fullPath) && !filePath.includes('\\') && !filePath.includes('/')) {
+                const found = this.findFileByName(wsRoot, filePath);
+                if (found) fullPath = found;
+            }
+            if (!fs.existsSync(fullPath)) continue;
+            const ext = filePath.split('.').pop()?.toLowerCase() || '';
+            const imageExts = ['png','jpg','jpeg','gif','bmp','svg','ico','webp'];
+            if (imageExts.includes(ext)) {
+                fileContexts.push(`[图片文件: ${fullPath}]`);
+            } else {
+                try {
+                    const content = fs.readFileSync(fullPath, 'utf-8');
+                    const preview = content.slice(0, 3000);
+                    fileContexts.push(`[文件: ${fullPath}]\n\`\`\`\n${preview}${content.length > 3000 ? '\n...(truncated)' : ''}\n\`\`\``);
+                } catch {
+                    fileContexts.push(`[文件: ${fullPath} (binary)]`);
+                }
+            }
+        }
+        if (fileContexts.length === 0) return prompt;
+        return fileContexts.join('\n\n') + '\n\n---\n用户消息:\n' + prompt;
+    }
+
+    /** 在工作区内按文件名搜索（浅层遍历，最大深度 3） */
+    private findFileByName(root: string, name: string): string | null {
+        logger.info(`[FindFile] searching "${name}" in root: ${root}`);
+        const walk = (dir: string, depth: number): string | null => {
+            if (depth > 3) return null;
+            let entries: fs.Dirent[];
+            try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e: any) {
+                logger.warn(`[FindFile] readdir failed for ${dir}: ${e.message}`);
+                return null;
+            }
+            for (const e of entries) {
+                if (e.name.startsWith('.') && e.name !== '.env') continue;
+                if (e.name === 'node_modules' || e.name === '__pycache__') continue;
+                const fp = path.join(dir, e.name);
+                if (e.isFile() && e.name === name) {
+                    logger.info(`[FindFile] found at ${fp}`);
+                    return fp;
+                }
+                if (e.isDirectory()) {
+                    const r = walk(fp, depth + 1);
+                    if (r) return r;
+                }
+            }
+            return null;
+        };
+        return walk(root, 0);
+    }
+
+    private hasActiveTasks(): boolean {
+        return this._lastTasks.some((t: any) =>
+            t.status === 'pending' || t.status === 'running'
+        );
     }
 
     private buildHtml(webview: vscode.Webview, guiDir: vscode.Uri): string {

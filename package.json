@@ -11,9 +11,18 @@
     "workspace"
   ],
   "license": "Apache-2.0",
-  "displayName": "Celest",
-  "description": "DeepSeek V4 powered AI coding agent for VS Code",
+  "displayName": "Celest — CodeWhale AI Agent",
+  "description": "CodeWhale TUI AI agent for VS Code — full API coverage (37/37), streaming chat, 8 panels, agent/task/skill management, multi-model support (DeepSeek/Qwen/GPT/Ollama)",
   "publisher": "TheEastKoi",
+  "icon": "assets/icon.png",
+  "galleryBanner": {
+    "color": "#0d1117",
+    "theme": "dark"
+  },
+  "bugs": {
+    "url": "https://github.com/TheEastKoi/celest/issues"
+  },
+  "homepage": "https://github.com/TheEastKoi/celest#readme",
   "engines": {
     "vscode": "^1.70.0",
     "node": ">=18.18.0"
@@ -25,10 +34,17 @@
   ],
   "keywords": [
     "deepseek",
+    "codewhale",
     "ai",
     "agent",
     "coding",
-    "celest"
+    "celest",
+    "qwen",
+    "openai",
+    "ollama",
+    "llm",
+    "chat",
+    "copilot"
   ],
   "activationEvents": [
     "onStartupFinished",
@@ -68,13 +84,18 @@
         "celest.provider": {
           "type": "string",
           "default": "deepseek",
-          "description": "API provider (deepseek, openai, nvidia-nim, ollama)"
+          "description": "API provider (deepseek, openai, nvidia-nim, ollama, dashscope)"
         },
         "celest.reasoningEffort": {
           "type": "string",
           "default": "max",
           "enum": ["off", "low", "medium", "high", "max"],
           "description": "Model reasoning depth"
+        },
+        "celest.hiddenSessions": {
+          "type": "array",
+          "default": [],
+          "description": "List of hidden session IDs (deleted by user)"
         }
       }
     },
@@ -107,6 +128,12 @@
         "category": "Celest",
         "title": "Add to Celest Chat",
         "icon": "$(add)"
+      },
+      {
+        "command": "celest.deleteSession",
+        "category": "Celest",
+        "title": "Delete Session",
+        "icon": "$(trash)"
       },
       {
         "command": "celest.clearChat",
@@ -220,6 +247,13 @@
         {
           "command": "celest.addToChat",
           "group": "celest@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "celest.deleteSession",
+          "when": "viewItem == session",
+          "group": "inline"
         }
       ]
     }

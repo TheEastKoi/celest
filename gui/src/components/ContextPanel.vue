@@ -65,7 +65,7 @@ function fmtNum(n?: number): string {
 <style scoped>
 .context-panel { font-size: 12px; padding: 8px; }
 .ctx-section { margin-bottom: 10px; }
-.ctx-section-title { font-weight: 600; font-size: 11px; color: var(--vscode-textLink-foreground); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.ctx-section-title { font-weight: 600; font-size: 11px; color: var(--vscode-foreground); opacity: 0.6; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 .ctx-row { display: flex; justify-content: space-between; padding: 2px 4px; font-size: 11px; }
 .ctx-row span:first-child { color: var(--vscode-descriptionForeground); }
 .ctx-row span:last-child { font-family: var(--vscode-editor-font-family); }

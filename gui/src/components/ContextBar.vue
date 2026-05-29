@@ -1,6 +1,8 @@
 <template>
     <div class="context-bar">
-        <span class="context-item">{{ modelName }}</span>
+        <select class="model-select" :value="modelId" @change="$emit('switchModel', ($event.target as HTMLSelectElement).value)" title="Switch model">
+            <option v-for="m in availableModels" :key="m.id" :value="m.id">{{ m.name }}</option>
+        </select>
         <span class="context-sep">|</span>
         <span class="context-item mode-switch" @click="$emit('cycleMode')" title="Click to switch mode">⚙ {{ modeName }}</span>
         <span class="context-sep">|</span>
@@ -14,15 +16,20 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+
+interface ModelOption { id: string; name: string; }
+
 const props = defineProps<{
-    modelName: string;
+    modelId: string;
+    availableModels: ModelOption[];
     mode: string;
     turnCount: number;
     sessionId?: string;
     gitBranch?: string;
     gitDirty?: boolean;
 }>();
-defineEmits<{ cycleMode: [] }>();
+defineEmits<{ cycleMode: []; switchModel: [modelId: string] }>();
+
 const modeLabels: Record<string, string> = { agent: 'Agent', plan: 'Plan', yolo: 'YOLO' };
 const modeName = computed(() => modeLabels[props.mode] || props.mode);
 </script>
@@ -33,4 +40,6 @@ const modeName = computed(() => modeLabels[props.mode] || props.mode);
 .context-item { white-space: nowrap; }
 .mode-switch { cursor: pointer; color: var(--vscode-textLink-foreground); }
 .mode-switch:hover { text-decoration: underline; }
+.model-select { padding: 1px 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 11px; cursor: pointer; max-width: 110px; }
+.model-select:focus { outline: none; border-color: var(--vscode-focusBorder); }
 </style>
