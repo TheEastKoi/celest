@@ -35,10 +35,16 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<vscode.Tree
     async getChildren(): Promise<vscode.TreeItem[]> {
         try {
             const threads = await this.tuiManager.listThreads();
-            if (threads.length === 0) {
-                return [this.makePlaceholder('No sessions yet. Send a prompt to create one.')];
+            // 只显示当前工作区的 thread
+            const currentWs = (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '').replace(/\\/g, '/');
+            const ownThreads = threads.filter(t => {
+                const tw = (t.workspace || '').replace(/\\/g, '/');
+                return !tw || tw === currentWs;
+            });
+            if (ownThreads.length === 0) {
+                return [this.makePlaceholder('当前工作区没有会话。发送第一条消息开始。')];
             }
-            return threads.filter(t => !this._hiddenIds.has(t.id)).map(t => {
+            return ownThreads.filter(t => !this._hiddenIds.has(t.id)).map(t => {
                 // 使用 title，fallback 到 Thread ID 前 8 位
                 const label = t.title || `Thread ${t.id.slice(0, 8)}`;
                 // 解析 ISO 8601 时间为本地化显示

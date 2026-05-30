@@ -107,7 +107,7 @@
                 <!-- 关于 -->
                 <div v-if="activeTab === 'about'" class="tab-content">
                     <div class="about-section">
-                        <div class="about-logo">🌙 Celest</div>
+                        <div class="about-logo"><img :src="iconPng" class="about-logo-img" /> Celest</div>
                         <div class="about-version">v{{ extVersion }}</div>
                         
                         <div class="info-grid">
@@ -164,6 +164,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue';
+import iconPng from '../assets/icon.png';
 import { t, setLocale, getAvailableModels, getReasoningEfforts } from '../i18n';
 
 const props = defineProps<{
@@ -290,7 +291,8 @@ function browseBinary() {
 .toggle-label { color: var(--vscode-descriptionForeground); font-size: 12px; }
 
 .about-section { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.about-logo { font-size: 28px; font-weight: 700; }
+.about-logo { font-size: 28px; font-weight: 700; display: flex; align-items: center; gap: 10px; justify-content: center; }
+.about-logo-img { width: 40px; height: 40px; }
 .about-version { font-size: 14px; color: var(--vscode-descriptionForeground); }
 .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
 .info-item { display: flex; justify-content: space-between; padding: 6px 10px; background: var(--vscode-textBlockQuote-background); border-radius: 4px; }

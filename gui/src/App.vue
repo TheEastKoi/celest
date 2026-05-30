@@ -1,7 +1,7 @@
 <template>
     <div class="celest-app">
         <header class="app-header">
-            <span class="app-title">🌙 Celest</span>
+            <span class="app-title"><img :src="iconPng" class="app-icon" /> Celest</span>
             <div class="header-actions">
                 <button class="header-btn" @click="openSettings" title="Settings">⚙</button>
                 <button class="header-btn" @click="handleCompact" title="压缩上下文 (/compact)">🗜</button>
@@ -9,7 +9,7 @@
             </div>
         </header>
         <div class="main-split" v-if="tuiReady" ref="splitRef">
-            <div class="split-left" :style="{ flex: `0 0 ${leftWidth}px` }"><ChatView ref="chatRef" @viewDiff="handleViewDiff" /></div>
+            <div class="split-left" :style="{ flex: `0 0 ${leftWidth}px` }"><ChatView ref="chatRef" @viewDiff="handleViewDiff" @stopTool="handleStopTool" /></div>
             <div class="split-handle" @mousedown="startResize" :class="{ dragging: isResizing }"></div>
             <div class="split-right" :style="{ flex: `0 0 ${rightWidth}px` }">
                 <!-- 工作流 Work -->
@@ -70,7 +70,7 @@
                 <HelpPanel ref="helpPanelRef" />
             </div>
         </div>
-        <main v-if="!tuiReady" class="chat-area"><ChatView ref="chatRef" @viewDiff="handleViewDiff" /></main>
+        <main v-if="!tuiReady" class="chat-area"><ChatView ref="chatRef" @viewDiff="handleViewDiff" @stopTool="handleStopTool" /></main>
         <footer class="input-area">
             <div v-if="!tuiReady" class="connecting-banner">{{ connectingText }}</div>
             <InputBox ref="inputBoxRef" @send="handleSend" @stop="handleStop" @pasteFiles="handlePasteFiles" @pasteImage="handlePasteImage" :disabled="!tuiReady" :showStop="promptRunning" :promptRunning="promptRunning" :files="fileList" :workspaceRoot="workspaceRoot" />
@@ -117,6 +117,7 @@ import WorkPanel from './components/WorkPanel.vue';
 
 import ApprovalPopup from './components/ApprovalPopup.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
+import iconPng from './assets/icon.png';
 import { getAvailableModels, setLocale, t } from './i18n';
 import type { FileItem } from './components/AtMentionPopup.vue';
 import HelpPanel from './components/HelpPanel.vue';
@@ -220,11 +221,13 @@ function handleSend(text: string) {
     if (!tuiReady.value) return;
     promptRunning.value = true;
     requestSeq.value++;
+    chatRef.value?.resetScrollState();
     chatRef.value?.addUserMessage(text);
     chatRef.value?.showTyping();
     vscode?.postMessage({ type: 'sendPrompt', prompt: text, seq: requestSeq.value, model: currentModel.value });
 }
 function handleStop() { vscode?.postMessage({ type: 'cancelPrompt' }); promptRunning.value = false; chatRef.value?.hideTyping(); }
+function handleStopTool(callId: string) { vscode?.postMessage({ type: 'cancelTool', callId }); }
 function handlePasteFiles(names: string[]) {
     vscode?.postMessage({ type: 'resolveFiles', names });
 }
@@ -326,6 +329,7 @@ onMounted(async () => {
         case 'tuiReasoning': chatRef.value?.appendReasoning(msg.reasoning); break;
         case 'tuiReasoningDone': chatRef.value?.markReasoningDone(); break;
         // 流式文本：隐藏思考指示器，追加到消息
+        case 'tuiUserMessage': chatRef.value?.addUserMessage(msg.text); break;
         case 'tuiText': chatRef.value?.hideTyping(); chatRef.value?.appendText(msg.text); break;
         case 'tuiToolCall': chatRef.value?.addToolCall(msg.toolCall?.name || 'tool', msg.toolCall?.arguments, msg.toolCall?.callId); break;
         case 'tuiToolResult': {
@@ -338,7 +342,7 @@ onMounted(async () => {
         }
         case 'tuiToolProgress': chatRef.value?.updateToolResult(msg.toolResult?.callId || '', msg.toolResult?.output ?? '', 'pending'); break;
         case 'promptStarted': promptRunning.value = true; turnCount.value++; break;
-        case 'promptEnded': promptRunning.value = false; chatRef.value?.hideTyping(); chatRef.value?.cancelPendingTools(); vscode?.postMessage({ type: 'getUsage', group_by: 'day' }); vscode?.postMessage({ type: 'getWorkspaceStatus' }); break;
+        case 'promptEnded': promptRunning.value = false; chatRef.value?.hideTyping(); chatRef.value?.cancelPendingTools(); chatRef.value?.resetScrollState(); vscode?.postMessage({ type: 'getUsage', group_by: 'day' }); vscode?.postMessage({ type: 'getWorkspaceStatus' }); break;
         case 'promptError': promptRunning.value = false; chatRef.value?.hideTyping(); chatRef.value?.appendText(`\n\n⚠️ Error: ${msg.error}`); break;
         case 'fileList': fileList.value = Array.isArray(msg.files) ? msg.files : []; break;
         case 'addAtMention': inputBoxRef.value?.insertAtCursor('@[' + (msg.path || '') + '] '); break;
@@ -359,9 +363,10 @@ onMounted(async () => {
                     if (h.role === 'user') {
                         chatRef.value?.addUserMessage(String(h.content || ''));
                     } else if (h.role === 'assistant') {
-                        chatRef.value?.appendText(String(h.content || ''));
+                        chatRef.value?.addAssistantMessage(String(h.content || ''));
                     }
                 }
+                chatRef.value?.resetScrollState();
             }
             break;
         }
@@ -387,6 +392,7 @@ onMounted(async () => {
         case 'workspaceStatus': {
             if (msg.status) {
                 workspaceRoot.value = msg.status.workspace || '';
+                chatRef.value?.setStorageWorkspace(workspaceRoot.value);
                 gitBranch.value = msg.status.branch || '';
                 const dirty = (msg.status.staged || 0) + (msg.status.unstaged || 0) + (msg.status.untracked || 0);
                 gitDirty.value = dirty > 0;
@@ -461,7 +467,8 @@ onMounted(async () => {
 .celest-app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .app-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border); font-size: 14px; font-weight: 600; flex-shrink: 0; }
 
-.app-title { font-size: 14px; }
+.app-title { font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.app-icon { width: 20px; height: 20px; }
 .header-actions { display: flex; gap: 4px; align-items: center; }
 .header-btn { background: none; border: none; color: var(--vscode-descriptionForeground); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 4px; line-height: 1; }
 .header-btn:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }

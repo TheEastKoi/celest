@@ -231,9 +231,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     /** 恢复历史会话（由 TreeView 命令直接调用，不走 webview 中转） */
     async resumeSession(threadId: string): Promise<void> {
         logger.info(`[Session] resuming thread ${threadId}`);
+        // 先中断当前 turn，避免旧 SSE 事件污染
+        await this.tuiManager.cancel();
+        this.stopTaskPolling();
         const thread = await this.tuiManager.resumeThread(threadId);
         if (!thread) {
             logger.warn(`[Session] resumeThread returned null for ${threadId}`);
+            return;
+        }
+        // 检查工作区匹配
+        const currentWs = (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '').replace(/\\/g, '/');
+        const threadWs = (thread.workspace || '').replace(/\\/g, '/');
+        if (threadWs && threadWs !== currentWs) {
+            logger.warn(`[Session] workspace mismatch: thread=${threadWs} current=${currentWs}`);
+            this.postMessage({ type: 'promptError', error: `此会话属于工作区 "${thread.workspace}"，与当前工作区不匹配。` });
             return;
         }
         logger.info(`[Session] resumed thread ${threadId}, loading history...`);
@@ -276,13 +287,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             for (const turn of detail.turns) {
                 const t = turn as any;
                 const userText = String(t.input_summary || '');
+
+                // 跳过被中断的 turn，显示提示
+                if (t.status === 'interrupted' || t.status === 'canceled') {
+                    if (userText) {
+                        history.push({ role: 'user', content: userText });
+                    }
+                    history.push({ role: 'assistant', content: '> ⚠️ 此轮对话被中断' });
+                    continue;
+                }
+
                 if (userText) {
                     history.push({ role: 'user', content: userText });
                 }
                 if (Array.isArray(t.item_ids)) {
                     for (const itemId of t.item_ids) {
                         const it = itemMap.get(itemId);
-                        if (it && it.kind === 'agent_message' && it.detail) {
+                        if (!it) continue;
+                        // 跳过被中断的 item 和非 agent_message 类型（如 reasoning）
+                        if (it.status === 'interrupted') continue;
+                        if (it.kind === 'agent_message' && it.detail) {
                             history.push({ role: 'assistant', content: String(it.detail) });
                         }
                     }
@@ -313,27 +337,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 }
                 const prompt = String(msg.prompt || '').trim();
 
-                // Phase 6.1: /compact 命令 → REST API 调用
-                if (prompt === '/compact') {
-                    const currentThreadId = (this.tuiManager as any)._currentThreadId;
-                    if (currentThreadId) {
-                        const ok = await this.tuiManager.compactThread(currentThreadId);
-                        this.postMessage({
-                            type: 'tuiText',
-                            text: ok
-                                ? '✅ Context compaction triggered. The conversation has been compressed.'
-                                : '⚠️ Compaction failed. The TUI process may not support this operation.',
-                            sessionId: 'http-sse',
-                        });
+                // ── 斜杠命令拦截 ──
+                const slashMatch = prompt.match(/^\/(\S+)(?:\s+(.*))?$/);
+                if (slashMatch) {
+                    try {
+                        // 先中断任何进行中的 turn，避免上一轮 SSE 事件污染
+                        await this.tuiManager.cancel();
+                        this.stopTaskPolling();
+                        const result = await Promise.race([
+                            this.dispatchSlashCommand(slashMatch[1], slashMatch[2] || ''),
+                            new Promise<string>((resolve) => setTimeout(() => resolve('⏱ 命令超时（5秒），请重试。'), 5000)),
+                        ]);
+                        if (result !== null) {
+                            this.postMessage({ type: 'tuiText', text: result, sessionId: 'http-sse' });
+                            this.postMessage({ type: 'promptEnded' });
+                            break;
+                        }
+                    } catch (err: any) {
+                        this.postMessage({ type: 'tuiText', text: '⚠️ 命令执行失败: ' + (err.message || '未知错误'), sessionId: 'http-sse' });
                         this.postMessage({ type: 'promptEnded' });
-                    } else {
-                        this.postMessage({ type: 'promptError', error: 'No active session to compact.' });
+                        break;
                     }
-                    break;
+                    // result === null → 交由 TUI steer 处理，等待 SSE
                 }
 
                 const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-                const enrichedPrompt = this.enrichPromptWithFiles(prompt, wsRoot);
+                let enrichedPrompt = this.enrichPromptWithFiles(prompt, wsRoot);
+                // 注入 shell 使用指导：长命令用 background 模式，可被中断
+                enrichedPrompt += '\n\n[系统提示: 预计运行超过10秒的shell命令请使用background:true参数，通过exec_shell_wait轮询。前台模式仅用于秒级完成的命令。]';
                 this.startTaskPolling();
                 const mySeq = ++this._promptSeq;
                 if (mySeq > 1) await this.tuiManager.cancel();
@@ -350,8 +381,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             case 'cancelPrompt':
                 await this.tuiManager.cancel();
                 this.stopTaskPolling();
+                this.postMessage({ type: 'tuiText', text: '> ⚠️ 此轮对话被中断', sessionId: 'http-sse' });
                 this.postMessage({ type: 'promptEnded' });
                 break;
+            case 'cancelTool': {
+                const callId = String(msg.callId || '');
+                await this.cancelCurrentTool(callId);
+                break;
+            }
             case 'openNewWindow':
                 vscode.commands.executeCommand('workbench.action.newWindow');
                 break;
@@ -405,7 +442,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     apiKeyStored: hasKey,
                     tuiVersion,
                     tuiConnected: this.tuiManager.connected,
-                    extVersion: '0.1.0',
+                    extVersion: '0.1.2',
                     nodeVersion: process.version,
                     vscodeVersion: vscode.version,
                 });
@@ -661,6 +698,170 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     // ── 辅助方法 ──
+
+    /** 斜杠命令分派 */
+    private async dispatchSlashCommand(cmd: string, args: string): Promise<string | null> {
+        switch (cmd) {
+            case 'compact': {
+                const tid = (this.tuiManager as any)._currentThreadId;
+                if (!tid) return '⚠️ 没有活跃会话，无法压缩。';
+                const ok = await this.tuiManager.compactThread(tid);
+                return ok ? '✅ 上下文已压缩。' : '⚠️ 压缩失败。';
+            }
+            case 'sessions': {
+                const list = await this.tuiManager.listSessions(50);
+                if (list.length === 0) return '📋 没有保存的会话。';
+                return '📋 **会话列表** (' + list.length + ')\n\n'
+                    + list.map(s => '• `' + s.id.slice(0, 8) + '` — ' + (s.title || '(无标题)') + ' (' + (s.updated_at?.slice(0, 10) || '?') + ')').join('\n');
+            }
+            case 'skills': {
+                const data = await this.tuiManager.listSkills();
+                if (!data || data.skills.length === 0) return '🧩 没有已安装的技能。';
+                return '🧩 **技能列表** (' + data.skills.length + ')\n\n'
+                    + data.skills.map(s => '• **' + s.name + '** — ' + s.description + ' ' + (s.enabled ? '✅' : '⏸')).join('\n');
+            }
+            case 'mcp': {
+                const [rawServers, rawTools] = await Promise.all([this.tuiManager.listMcpServers(), this.tuiManager.listMcpTools()]);
+                const servers = Array.isArray(rawServers) ? rawServers : [];
+                const tools = Array.isArray(rawTools) ? rawTools : [];
+                if (servers.length === 0 && tools.length === 0) return '🔌 没有配置 MCP 服务器。';
+                const lines = ['🔌 **MCP 服务器** (' + servers.length + ')'];
+                for (const s of servers) lines.push('• ' + ((s as any).name || (s as any).id || '?'));
+                lines.push('', '🔧 **MCP 工具** (' + tools.length + ')');
+                for (const t of tools.slice(0, 20)) lines.push('• `' + ((t as any).name || (t as any).id) + '`');
+                if (tools.length > 20) lines.push('… 还有 ' + (tools.length - 20) + ' 个工具');
+                return lines.join('\n');
+            }
+            case 'tasks': {
+                const tasks = await this.tuiManager.listTasks();
+                if (tasks.length === 0) return '📌 没有后台任务。';
+                return '📌 **后台任务** (' + tasks.length + ')\n\n'
+                    + tasks.map((t: any) => '• `' + (t.id || '').slice(0, 8) + '` [' + (t.status || '?') + '] ' + (t.summary || '')).join('\n');
+            }
+            case 'version': {
+                const info = await this.tuiManager.getRuntimeInfo();
+                return '🌙 **Celest / CodeWhale TUI**\n版本: ' + (info?.version || '未知');
+            }
+            case 'models':
+                return '🤖 **可用模型**\n\n• `deepseek-v4-flash` (默认，快速)\n• `deepseek-v4-pro` (深度推理)\n\n切换: `/model <名称>`';
+            case 'memory': {
+                const sub = args.trim();
+                const memPath = path.join(os.homedir(), '.deepseek', 'memory.md');
+                if (sub === 'clear') {
+                    fs.writeFileSync(memPath, '', 'utf-8');
+                    return '🧠 记忆已清空。';
+                }
+                try {
+                    const buf = fs.readFileSync(memPath);
+                    // 自动检测编码：UTF-8 → GBK 回退（Windows 中文系统 Add-Content 可能用 GBK）
+                    let content = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+                    if (buf.length > 0 && content.includes('\uFFFD')) {
+                        try { content = new TextDecoder('gbk').decode(buf); } catch { /* keep original */ }
+                    }
+                    if (!content.trim()) return '🧠 记忆为空。在对话中输入 `# 记住：xxx` 添加。';
+                    return '🧠 **当前记忆**\n\n```markdown\n' + content.slice(0, 3000) + '\n```';
+                } catch {
+                    return '🧠 记忆文件不存在。在 `~/.deepseek/config.toml` 中启用 `[memory] enabled = true`。';
+                }
+            }
+            case 'new': {
+                await this.newSession();
+                return '✅ 已创建新会话。';
+            }
+            case 'load': {
+                const id = args.trim();
+                if (!id) return '⚠️ 用法: /load <会话ID>';
+                await this.resumeSession(id);
+                return null; // resumeSession 自行处理 UI
+            }
+            case 'rename': {
+                const tid = (this.tuiManager as any)._currentThreadId;
+                if (!tid) return '⚠️ 没有活跃会话。';
+                const name = args.trim();
+                if (!name) return '⚠️ 用法: /rename <名称>';
+                await this.tuiManager.updateThreadConfig(tid, { title: name });
+                this._onSessionChange?.();
+                return '✅ 已重命名为 "' + name + '"';
+            }
+            case 'fork': {
+                const tid = (this.tuiManager as any)._currentThreadId;
+                if (!tid) return '⚠️ 没有活跃会话。';
+                const forked = await this.tuiManager.forkThread(tid);
+                return forked ? '✅ 已创建分支会话 `' + forked.id.slice(0, 8) + '`' : '⚠️ Fork 失败。';
+            }
+            case 'mode': {
+                const mode = args.trim();
+                if (!mode) return '⚠️ 用法: /mode <agent|plan|yolo>';
+                this.tuiManager.setConfig({ mode } as any);
+                this.tuiManager.autoApprove = mode === 'yolo';
+                const tid = (this.tuiManager as any)._currentThreadId;
+                if (tid) await this.tuiManager.updateThreadConfig(tid, { mode }).catch(() => {});
+                this.postMessage({ type: 'modeSwitched', mode });
+                return '✅ 已切换为 ' + mode + ' 模式';
+            }
+            case 'model': {
+                const model = args.trim();
+                if (!model) return '⚠️ 用法: /model <模型名>';
+                this.tuiManager.setConfig({ model });
+                const tid = (this.tuiManager as any)._currentThreadId;
+                if (tid) await this.tuiManager.updateThreadConfig(tid, { model }).catch(() => {});
+                this.postMessage({ type: 'modelSwitched', model });
+                return '✅ 已切换为 ' + model;
+            }
+            case 'skill': {
+                const name = args.trim();
+                if (!name) return '⚠️ 用法: /skill <技能名>';
+                const ok = await this.tuiManager.setSkillEnabled(name, true);
+                return ok ? '✅ 技能 "' + name + '" 已启用' : '⚠️ 切换技能失败。';
+            }
+            case 'context': {
+                const usage = await this.tuiManager.getUsage({ group_by: 'thread' });
+                if (!usage) return '🔍 暂无上下文数据。';
+                const t = usage.totals;
+                return '🔍 **上下文用量**\n\n• 输入 token: ' + t.input_tokens.toLocaleString()
+                    + '\n• 输出 token: ' + t.output_tokens.toLocaleString()
+                    + '\n• 缓存 token: ' + t.cached_tokens.toLocaleString()
+                    + '\n• 推理 token: ' + t.reasoning_tokens.toLocaleString()
+                    + '\n• 总轮次: ' + t.turns
+                    + '\n• 预估费用: $' + t.cost_usd.toFixed(4);
+            }
+            case 'cost': {
+                const usage = await this.tuiManager.getUsage({ group_by: 'day' });
+                if (!usage) return '💰 暂无费用数据。';
+                return '💰 **费用估算**\n\n• 今日费用: $' + usage.totals.cost_usd.toFixed(4)
+                    + '\n• 今日 token: ' + usage.totals.input_tokens.toLocaleString() + ' 入 / ' + usage.totals.output_tokens.toLocaleString() + ' 出';
+            }
+            case 'tokens': {
+                const usage = await this.tuiManager.getUsage({ group_by: 'day' });
+                if (!usage) return '🔢 暂无 token 数据。';
+                const t = usage.totals;
+                return '🔢 **Token 统计**\n\n• 总输入: ' + t.input_tokens.toLocaleString()
+                    + '\n• 总输出: ' + t.output_tokens.toLocaleString()
+                    + '\n• 缓存命中: ' + t.cached_tokens.toLocaleString()
+                    + '\n• 推理: ' + t.reasoning_tokens.toLocaleString();
+            }
+            case 'task': {
+                const id = args.trim();
+                if (!id) return '⚠️ 用法: /task <任务ID>';
+                const task = await this.tuiManager.getTask(id);
+                if (!task) return '⚠️ 任务 `' + id + '` 不存在。';
+                return '📌 **任务详情**\n\n```json\n' + JSON.stringify(task, null, 2).slice(0, 2000) + '\n```';
+            }
+            // 未匹配的命令 → 发给 TUI
+            default:
+                return null;
+        }
+    }
+
+    /** 取消当前工具执行（通过 interrupt turn，等效于全局 Stop） */
+    private async cancelCurrentTool(_callId: string): Promise<void> {
+        // TUI 引擎在工具执行期间不处理 steer 消息，
+        // 因此唯一能中断 in-flight 工具的方式是 POST /interrupt。
+        await this.tuiManager.cancel();
+        this.stopTaskPolling();
+        this.postMessage({ type: 'tuiText', text: '> ⚠️ 此轮对话被中断', sessionId: 'http-sse' });
+        this.postMessage({ type: 'promptEnded' });
+    }
 
     private async showDiff(filePath: string, oldContent?: string, newContent?: string): Promise<void> {
         try {

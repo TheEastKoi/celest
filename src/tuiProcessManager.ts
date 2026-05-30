@@ -51,6 +51,7 @@ export interface ThreadSummary {
     updated_at: string;
     model?: string;
     mode?: string;
+    workspace?: string;
     latest_turn_id?: string;
     archived?: boolean;
 }
@@ -395,6 +396,7 @@ export class TuiProcessManager {
                 updated_at: t.updated_at || '',
                 model: t.model,
                 mode: t.mode,
+                workspace: t.workspace || undefined,
                 latest_turn_id: t.latest_turn_id,
                 archived: t.archived,
             }));

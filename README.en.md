@@ -227,6 +227,7 @@ npx vitest run
 | 5 | Settings + model/mode + i18n + download | ✅ |
 | 6 | Full API adaptation + panel alignment + tests | ✅ |
 | 6.4 | Closed beta fixes (26 bugs + 10 features) | ✅ |
+| 6.5 | v0.1.2 — Stop button split · Scroll fixes · Session restore filter · Window isolation | ✅ |
 
 ## 🔄 Backend Engine
 

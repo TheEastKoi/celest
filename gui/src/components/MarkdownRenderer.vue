@@ -42,37 +42,61 @@ const renderedHtml = computed(() => md.render(props.content));
 <style>
 /* Global markdown styles (unscoped, applies to v-html content) */
 .markdown-body {
-    font-size: 13px;
-    line-height: 1.6;
+    font-size: 14px;
+    line-height: 1.85;
     word-wrap: break-word;
 }
-.markdown-body p { margin: 0 0 8px; }
+.markdown-body p { margin: 0 0 20px; }
 .markdown-body p:last-child { margin-bottom: 0; }
 .markdown-body code {
     background: var(--vscode-textCodeBlock-background);
-    padding: 1px 4px;
+    padding: 2px 5px;
     border-radius: 3px;
-    font-size: 12px;
+    font-size: 13px;
 }
 .markdown-body pre {
     background: var(--vscode-textCodeBlock-background);
-    padding: 10px;
+    padding: 12px 14px;
     border-radius: 6px;
     overflow-x: auto;
-    margin: 8px 0;
+    margin: 18px 0;
 }
 .markdown-body pre code {
     background: none;
     padding: 0;
+    font-size: 13px;
+    line-height: 1.6;
 }
 .markdown-body ul, .markdown-body ol {
-    padding-left: 20px;
-    margin: 4px 0;
+    padding-left: 24px;
+    margin: 12px 0;
+}
+.markdown-body li { margin-bottom: 8px; }
+.markdown-body li:last-child { margin-bottom: 0; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3,
+.markdown-body h4, .markdown-body h5, .markdown-body h6 {
+    margin: 24px 0 12px;
+    line-height: 1.4;
+}
+.markdown-body h1:first-child, .markdown-body h2:first-child,
+.markdown-body h3:first-child, .markdown-body h4:first-child,
+.markdown-body h5:first-child, .markdown-body h6:first-child {
+    margin-top: 0;
 }
 .markdown-body blockquote {
     border-left: 3px solid var(--vscode-textBlockQuote-border);
-    padding-left: 10px;
+    padding: 6px 14px;
     color: var(--vscode-textBlockQuote-foreground);
-    margin: 8px 0;
+    margin: 18px 0;
+    border-radius: 0 4px 4px 0;
+    background: var(--vscode-textBlockQuote-background);
+}
+.markdown-body hr {
+    margin: 24px 0;
+    border: none;
+    border-top: 1px solid var(--vscode-panel-border);
+}
+.markdown-body table {
+    margin: 18px 0;
 }
 </style>

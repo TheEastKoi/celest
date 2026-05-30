@@ -1,7 +1,7 @@
 <template>
-    <div class="chat-view" ref="scrollContainer">
+    <div class="chat-view" ref="scrollContainer" @scroll="onScroll">
         <div v-if="messages.length === 0" class="empty-state">
-            <div class="empty-icon">🌙</div>
+            <div class="empty-icon"><img :src="iconPng" class="empty-icon-img" /></div>
             <p>Start a conversation with Celest</p>
             <p class="empty-hint">Type a message or use <kbd>@</kbd> to reference files</p>
         </div>
@@ -33,6 +33,7 @@
                             <span v-if="part.status" class="tool-status" :class="'status-' + part.status">
                                 {{ part.status }}
                             </span>
+                            <button v-if="part.status === 'pending'" class="tool-stop-btn" @click.stop="emit('stopTool', part.callId || '')" title="停止此命令">⏹</button>
                             <span v-if="part.result && part._collapsed !== false" class="tool-result-preview">
                                 {{ toolResultPreview(part.result) }}
                             </span>
@@ -51,6 +52,14 @@
                         </div>
                     </div>
                 </template>
+                <div class="copy-row">
+                    <button
+                        class="copy-btn"
+                        :class="{ copied: msg._copied }"
+                        :title="msg._copied ? 'Copied' : 'Copy answer'"
+                        @click.stop="copyMessage(msg)"
+                    >{{ msg._copied ? '✓ Copied' : '📋 Copy' }}</button>
+                </div>
             </div>
         </div>
 
@@ -68,11 +77,13 @@
 import { ref, nextTick, watch, onMounted } from 'vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
+import iconPng from '../assets/icon.png';
 
 // Phase 4: viewDiff 通过 emit 传给父组件（App.vue），避免重复 acquireVsCodeApi
 const emit = defineEmits<{
     viewDiff: [filePath: string, oldContent?: string, newContent?: string];
     openFile: [filePath: string];
+    stopTool: [callId: string];
 }>();
 
 declare function acquireVsCodeApi(): any;
@@ -131,9 +142,48 @@ function handleChipClick(e: MouseEvent) {
     }
 }
 
+/** 复制 assistant 消息的文字回答 */
+async function copyMessage(msg: Message) {
+    const parts = msg.parts || [];
+    const text = parts
+        .filter(p => p.type === 'text')
+        .map(p => p.content || '')
+        .join('\n');
+    if (!text) return;
+    try {
+        await navigator.clipboard.writeText(text);
+        msg._copied = true;
+        setTimeout(() => { msg._copied = false; }, 2000);
+    } catch {
+        // fallback for older WebView
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        msg._copied = true;
+        setTimeout(() => { msg._copied = false; }, 2000);
+    }
+}
+
 // ── Constants ──────────────────────────────────────────────────
 
-const STORAGE_KEY = 'celest_messages';
+let STORAGE_KEY = 'celest_messages';
+let _wsSet = false;
+function setStorageWorkspace(ws: string) {
+    const suffix = ws ? '_' + ws.replace(/[\\/:*?"<>|]/g, '_').slice(-40) : '';
+    const newKey = 'celest_messages' + suffix;
+    if (STORAGE_KEY === newKey && _wsSet) return;
+    STORAGE_KEY = newKey;
+    _wsSet = true;
+    // 工作区变更：清空并重新加载
+    messages.value = [];
+    loadFromStorage();
+    nextTick(() => requestAnimationFrame(() => scrollToBottom(true)));
+}
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -141,6 +191,7 @@ export interface Message {
     role: 'user' | 'assistant';
     content?: string;
     parts?: ChatPart[];
+    _copied?: boolean;
 }
 
 export interface ChatPart {
@@ -180,6 +231,13 @@ function ensureAssistant(): Message {
     const msg: Message = { role: 'assistant', parts: [] };
     messages.value.push(msg);
     return msg;
+}
+
+/** 强制创建新 assistant 消息（用于历史加载，避免合并） */
+function addAssistantMessage(content: string) {
+    const msg: Message = { role: 'assistant', parts: [{ type: 'text', content }] };
+    messages.value.push(msg);
+    scrollToBottom();
 }
 
 /** 追加或创建文本 part（打字机增量） */
@@ -314,8 +372,8 @@ function saveToStorage() {
 // 监听消息变化并自动保存
 watch(messages, () => saveToStorage(), { deep: true });
 
-// 组件挂载时恢复消息
-onMounted(() => loadFromStorage());
+// 组件挂载时不加载 — 等收到 workspace 后 setStorageWorkspace 会触发加载
+onMounted(() => {});
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -379,12 +437,32 @@ function viewDiff(part: any) {
 
 // ── Scroll ────────────────────────────────────────────────────
 
-function scrollToBottom() {
+const userScrolledUp = ref(false);
+const SCROLL_THRESHOLD = 50;
+
+function onScroll() {
+    const el = scrollContainer.value;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledUp.value = dist > SCROLL_THRESHOLD;
+}
+
+function scrollToBottom(force = false) {
+    if (!force && userScrolledUp.value) return;
+    const doScroll = () => {
+        const el = scrollContainer.value;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+    };
     nextTick(() => {
-        if (scrollContainer.value) {
-            scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight;
-        }
+        doScroll();
+        requestAnimationFrame(() => doScroll());
     });
+}
+
+function resetScrollState() {
+    userScrolledUp.value = false;
+    scrollToBottom(true);
 }
 
 // ── Exports ───────────────────────────────────────────────────
@@ -404,6 +482,7 @@ function cancelPendingTools() {
 
 defineExpose({
     addUserMessage,
+    addAssistantMessage,
     appendText,
     appendReasoning,
     markReasoningDone,
@@ -414,12 +493,14 @@ defineExpose({
     hideTyping,
     appendTypingChar,
     cancelPendingTools,
+    resetScrollState,
+    setStorageWorkspace,
 });
 </script>
 
 <style scoped>
 .chat-view {
-    padding: 12px;
+    padding: 20px;
     height: 100%;
     overflow-y: auto;
 }
@@ -431,7 +512,8 @@ defineExpose({
     padding: 40px 20px;
     color: var(--vscode-descriptionForeground);
 }
-.empty-icon { font-size: 40px; margin-bottom: 12px; }
+.empty-icon { margin-bottom: 12px; }
+.empty-icon-img { width: 48px; height: 48px; }
 .empty-hint { font-size: 12px; margin-top: 8px; }
 .empty-hint kbd {
     background: var(--vscode-badge-background);
@@ -448,6 +530,32 @@ defineExpose({
     margin-left: auto;
 }
 .assistant-msg { max-width: 100%; }
+.copy-row {
+    display: flex;
+    justify-content: flex-start;
+    margin-top: 6px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.assistant-msg:hover .copy-row { opacity: 1; }
+.copy-btn {
+    background: var(--vscode-toolbar-hoverBackground);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 8px;
+}
+.copy-btn:hover {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+}
+.copy-btn.copied {
+    background: #2ea04344;
+    color: #2ea043;
+    border-color: #2ea04366;
+}
 
 /* ── 工具调用卡片 (Phase 2) ─────────────────────────────── */
 .tool-call-card {
@@ -486,6 +594,21 @@ defineExpose({
 .status-error {
     background: #f8514944;
     color: #f85149;
+}
+.tool-stop-btn {
+    background: none;
+    border: 1px solid var(--vscode-panel-border);
+    color: var(--vscode-errorForeground);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0 5px;
+    border-radius: 3px;
+    margin-left: 4px;
+    line-height: 1.4;
+}
+.tool-stop-btn:hover {
+    background: var(--vscode-inputValidation-errorBackground);
+    border-color: var(--vscode-inputValidation-errorBorder);
 }
 .tool-result-preview {
     flex: 1;

@@ -1,3 +1,20 @@
+## 2026-05-31 (v0.1.2)
+
+### 修复
+
+- 停止按钮拆分为 Stop + Cancel，Stop 立即终止生成并取消 pending 工具
+- ChatView 滚动修复：自动滚到底 + 用户手动滚动时不抢焦点
+- 会话恢复过滤：跳过 interrupted turn，只渲染最终 agent_message
+- 多窗口 Session 隔离：每个 VSCode 窗口独立 threadId
+- 斜杠命令框架：50+ 命令分 local/api/steer 三类分派
+- 设置面板图标更新 + Markdown 渲染修复
+
+### 构建
+
+Extension: 100.0 KB, GUI JS: 278.75 KB, CSS: 38.05 KB
+
+---
+
 ## 2026-05-29 (Phase 6.4 封闭测试修复)
 
 ### 新增功能 (10 项)
