@@ -16,6 +16,7 @@ tsconfig.json
 vitest.config.ts
 build.bat
 test.bat
+$null
 nul
 AGENTS.md
 ARCHITECTURE.md
