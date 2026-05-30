@@ -442,7 +442,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     apiKeyStored: hasKey,
                     tuiVersion,
                     tuiConnected: this.tuiManager.connected,
-                    extVersion: '0.1.2',
+                    extVersion: '0.1.3',
                     nodeVersion: process.version,
                     vscodeVersion: vscode.version,
                 });
