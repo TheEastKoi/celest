@@ -405,6 +405,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     );
                     if (!result) {
                         logger.warn(`[Approval] decision failed for ${msg.approvalId}`);
+                        this.postMessage({ type: 'tuiWarning', message: `审批决策发送失败，TUI 可能已自动处理 (${msg.approvalId})` });
                     }
                 }
                 break;

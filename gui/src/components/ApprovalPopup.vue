@@ -47,16 +47,6 @@
                 </div>
             </div>
 
-            <!-- 确认区（选中后按 Enter 进入确认态） -->
-            <div v-if="false" class="approval-confirm">
-                <div class="confirm-banner">
-                    ⏎ 确认 {{ pendingLabel }}
-                </div>
-                <div class="confirm-hint">
-                    Enter 确认 &nbsp;|&nbsp; Esc 返回选择
-                </div>
-            </div>
-
             <!-- 倒计时（未决定时） -->
             <div v-if="!decided && countdown > 0" class="approval-timeout">
                 {{ formattedCountdown }} 后自动拒绝
@@ -87,6 +77,7 @@ const options: Option[] = [
     { label: '信任会话',   hint: '本次会话不再提示',   decision: 'allow', remember: true  },
     { label: '拒绝',       hint: '',                  decision: 'deny',  remember: false },
 ];
+const DENY_INDEX = options.findIndex(o => o.decision === 'deny');
 
 // ── Props ─────────────────────────────────────────────────────
 
@@ -110,8 +101,6 @@ const emit = defineEmits<{
 const decided = ref(false);
 const decisionText = ref('');
 const focusedIdx = ref(0);
-const confirmed = ref(false);
-const pendingLabel = ref('');
 const overlayRef = ref<HTMLElement>();
 const TIMEOUT_SECS = 300;
 const countdown = ref(TIMEOUT_SECS);
@@ -132,15 +121,13 @@ watch(() => props.visible, async (val) => {
         decided.value = false;
         decisionText.value = '';
         focusedIdx.value = 0;
-        confirmed.value = false;
-        pendingLabel.value = '';
         countdown.value = TIMEOUT_SECS;
         if (timer) clearInterval(timer);
         timer = setInterval(() => {
             countdown.value--;
             if (countdown.value <= 0) {
                 if (!decided.value) {
-                    commitOption(2); // auto-deny
+                    commitOption(DENY_INDEX); // auto-deny
                 }
                 if (timer) clearInterval(timer);
             }
@@ -161,52 +148,18 @@ onUnmounted(() => {
 
 // ── Methods ───────────────────────────────────────────────────
 
-function focusOption(idx: number) {
-    if (decided.value) return;
-    focusedIdx.value = idx;
-    // 鼠标点击直接进入确认
-    commitOption(idx);
-}
-
-function enterConfirm(idx: number) {
-    if (confirmed.value || decided.value) return;
-    const opt = options[idx];
-    if (!opt) return;
-    confirmed.value = true;
-    pendingLabel.value = opt.label;
-}
-
-function cancelConfirm() {
-    if (decided.value) return;
-    confirmed.value = false;
-    pendingLabel.value = '';
-}
-
 function commitOption(idx: number) {
     if (decided.value) return;
     const opt = options[idx];
     if (!opt) return;
     decided.value = true;
     decisionText.value = opt.label;
-    confirmed.value = false;
     if (timer) clearInterval(timer);
     emit('decide', opt.decision, opt.remember);
 }
 
 function handleKeydown(e: KeyboardEvent) {
     if (decided.value) return;
-
-    // 确认态 → Enter 提交 / Esc 取消
-    if (confirmed.value) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            commitOption(focusedIdx.value);
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            cancelConfirm();
-        }
-        return;
-    }
 
     // 选择态
     if (e.key === 'ArrowUp' || e.key === 'k') {
@@ -379,23 +332,6 @@ function handleKeydown(e: KeyboardEvent) {
     font-size: 11px;
     color: var(--vscode-descriptionForeground);
     opacity: 0.7;
-}
-
-/* 确认区 */
-.approval-confirm {
-    padding: 12px 16px;
-    border-top: 1px solid var(--vscode-panel-border);
-}
-.confirm-banner {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--vscode-textLink-foreground);
-    padding: 6px 0;
-}
-.confirm-hint {
-    font-size: 11px;
-    color: var(--vscode-descriptionForeground);
-    margin-top: 4px;
 }
 
 /* 倒计时 */

@@ -15,7 +15,7 @@ describe('SessionsTreeProvider', () => {
         const provider = new SessionsTreeProvider(mgr);
         const items = await provider.getChildren();
         expect(items).toHaveLength(1);
-        expect(items[0].label).toContain('No sessions yet');
+        expect(items[0].label).toContain('当前工作区没有会话');
     });
 
     it('should return session items when listThreads returns data', async () => {
