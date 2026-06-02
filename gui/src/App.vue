@@ -170,7 +170,8 @@ const showApproval = ref(false),
     approvalDescription = ref(''),
     approvalToolType = ref(''),
     approvalImpact = ref(''),
-    approvalParams = ref('');
+    approvalParams = ref(''),
+    trustActive = ref(false);
 
 const showSettings = ref(false),
     settingsConfig = ref({
@@ -355,7 +356,7 @@ onMounted(async () => {
             break;
         case 'pasteImageResult': inputBoxRef.value?.replaceText('@[' + (msg.fileName || '') + '] ', '@' + (msg.filePath || '') + ' '); break;
         case 'clearChat': chatRef.value?.clearMessages(); break;
-        case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; agentsList.value = []; contextUsage.value = null; contextWorkspace.value = null; break;
+        case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; agentsList.value = []; contextUsage.value = null; contextWorkspace.value = null; trustActive.value = false; break;
         case 'loadHistory': {
             const history = msg.history;
             if (Array.isArray(history)) {
@@ -437,6 +438,10 @@ onMounted(async () => {
             break;
         case 'tuiApprovalDecided': showApproval.value = false; break;
         case 'tuiApprovalTimeout': showApproval.value = false; break;
+        case 'trustActive':
+            trustActive.value = msg.active === true;
+            chatRef.value?.appendSystemMessage(msg.active ? '🔓 会话已信任 — 后续工具调用将自动批准' : '🔐 信任已重置');
+            break;
 
         case 'openSettings': openSettings(); break;
         case 'settingsData':

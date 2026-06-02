@@ -452,10 +452,7 @@ export class TuiProcessManager {
             logger.warn('[Approval] TUI not connected, cannot decide');
             return false;
         }
-        if (remember && decision === 'allow') {
-            this._autoApprove = true;
-            logger.info('[Approval] session trusted (autoApprove=true for future turns)');
-        }
+        // 仅在 HTTP 调用成功后设置 autoApprove，避免网络失败时状态不一致
         const url = `http://127.0.0.1:${this._port}/v1/approvals/${approvalId}`;
         try {
             const resp = await fetch(url, {
@@ -480,6 +477,10 @@ export class TuiProcessManager {
                 return false;
             }
             if (result.ok) {
+                if (remember && decision === 'allow') {
+                    this._autoApprove = true;
+                    logger.info('[Approval] session trusted (autoApprove=true after successful HTTP)');
+                }
                 logger.info(`[Approval] decided: ${decision} remember=${remember} for ${approvalId}`);
                 return true;
             }

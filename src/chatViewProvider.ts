@@ -207,6 +207,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // Reset current thread so next prompt creates a new one
         (this.tuiManager as any)._currentThreadId = undefined;
         (this.tuiManager as any)._lastEventSeq = 0;
+        // Reset auto-approve — 新会话应恢复审批弹窗
+        this.tuiManager.autoApprove = false;
+        // 通知前端信任已重置
+        this.postMessage({ type: 'trustActive', active: false });
         // Clear chat messages
         this.postMessage({ type: 'clearChat' });
         // Reset panel data
@@ -407,6 +411,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     if (!result) {
                         logger.warn(`[Approval] decision failed for ${msg.approvalId}`);
                         this.postMessage({ type: 'tuiWarning', message: `审批决策发送失败，TUI 可能已自动处理 (${msg.approvalId})` });
+                    } else if (msg.remember && msg.decision === 'allow') {
+                        // 通知前端信任已激活（autoApprove 在 decideApproval 成功后由 TUI 设置）
+                        this.postMessage({ type: 'trustActive', active: true });
                     }
                 }
                 break;

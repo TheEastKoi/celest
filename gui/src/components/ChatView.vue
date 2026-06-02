@@ -255,6 +255,17 @@ function appendText(text: string) {
 /** 打字机逐字追加（供 App.vue typewriter 定时器调用） */
 function appendTypingChar(ch: string) { appendText(ch); }
 
+/** 追加系统提示消息（inline 通知，不可折叠） */
+function appendSystemMessage(text: string) {
+    const parts = messages.value[messages.value.length - 1]?.parts;
+    if (parts) {
+        parts.push({ type: 'text', content: text });
+    } else {
+        messages.value.push({ role: 'assistant', parts: [{ type: 'text', content: text }] });
+    }
+    scrollToBottom();
+}
+
 /** 追加或创建 reasoning part（thinking 块） */
 function appendReasoning(text: string) {
     const msg = ensureAssistant();
@@ -493,6 +504,7 @@ defineExpose({
     cancelPendingTools,
     resetScrollState,
     setStorageWorkspace,
+    appendSystemMessage,
 });
 </script>
 
