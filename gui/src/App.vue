@@ -330,7 +330,7 @@ onMounted(async () => {
         case 'tuiReasoningDone': chatRef.value?.markReasoningDone(); break;
         // 流式文本：隐藏思考指示器，追加到消息
         case 'tuiUserMessage': chatRef.value?.addUserMessage(msg.text); break;
-        case 'tuiText': chatRef.value?.hideTyping(); chatRef.value?.appendText(msg.text); break;
+        case 'tuiText': chatRef.value?.appendText(msg.text); break;
         case 'tuiToolCall': chatRef.value?.addToolCall(msg.toolCall?.name || 'tool', msg.toolCall?.arguments, msg.toolCall?.callId); break;
         case 'tuiToolResult': {
             const { callId, output, status, toolName } = msg.toolResult || {};

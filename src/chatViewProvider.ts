@@ -15,6 +15,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _taskPollTimer: ReturnType<typeof setInterval> | null = null;
     private _lastTasks: any[] = [];
     private _binaryDownloader: BinaryDownloader;
+    private _mcpCache: { servers: any[]; tools: any[]; ts: number } | null = null;
 
     private static readonly TOOL_META: Record<string, { type: string; impact: string }> = {
         exec_shell:              { type: 'Shell 命令',         impact: '高 — 可执行任意系统命令' },
@@ -673,7 +674,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
 
             case 'getMcpStatus': {
-                const servers = await this.tuiManager.listMcpServers();
+                const [servers, tools] = await Promise.all([
+                    this.tuiManager.listMcpServers(),
+                    this.tuiManager.listMcpTools(),
+                ]);
+                this._mcpCache = { servers, tools, ts: Date.now() };
                 this.postMessage({ type: 'mcpStatus', servers });
                 break;
             }
@@ -722,14 +727,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     + data.skills.map(s => '• **' + s.name + '** — ' + s.description + ' ' + (s.enabled ? '✅' : '⏸')).join('\n');
             }
             case 'mcp': {
-                const [rawServers, rawTools] = await Promise.all([this.tuiManager.listMcpServers(), this.tuiManager.listMcpTools()]);
-                const servers = Array.isArray(rawServers) ? rawServers : [];
-                const tools = Array.isArray(rawTools) ? rawTools : [];
+                const CACHE_TTL = 30_000; // 30秒缓存
+                let servers: any[], tools: any[];
+                if (this._mcpCache && (Date.now() - this._mcpCache.ts) < CACHE_TTL) {
+                    servers = this._mcpCache.servers;
+                    tools = this._mcpCache.tools;
+                } else {
+                    const [rawServers, rawTools] = await Promise.all([this.tuiManager.listMcpServers(), this.tuiManager.listMcpTools()]);
+                    servers = Array.isArray(rawServers) ? rawServers : [];
+                    tools = Array.isArray(rawTools) ? rawTools : [];
+                    this._mcpCache = { servers, tools, ts: Date.now() };
+                }
                 if (servers.length === 0 && tools.length === 0) return '🔌 没有配置 MCP 服务器。';
                 const lines = ['🔌 **MCP 服务器** (' + servers.length + ')'];
-                for (const s of servers) lines.push('• ' + ((s as any).name || (s as any).id || '?'));
+                for (const s of servers) lines.push('• ' + ((s as any).name || (s as any).id || '?') + (((s as any).connected) ? ' ✅' : ' ⚠'));
                 lines.push('', '🔧 **MCP 工具** (' + tools.length + ')');
-                for (const t of tools.slice(0, 20)) lines.push('• `' + ((t as any).name || (t as any).id) + '`');
+                for (const t of tools.slice(0, 20)) lines.push('• `' + ((t as any).prefixed_name || (t as any).name || (t as any).id) + '`');
                 if (tools.length > 20) lines.push('… 还有 ' + (tools.length - 20) + ' 个工具');
                 return lines.join('\n');
             }

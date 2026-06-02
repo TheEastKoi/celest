@@ -63,11 +63,9 @@
             </div>
         </div>
 
-        <!-- typing 指示器 -->
+        <!-- typing 指示器 — 图标 + 脉冲动画 -->
         <div v-if="typing" class="typing-indicator">
-            <span class="typing-dot"></span>
-            <span class="typing-dot"></span>
-            <span class="typing-dot"></span>
+            <img :src="iconPng" class="typing-icon" alt="Celest thinking" />
             <span class="typing-text">Celest is thinking...</span>
         </div>
     </div>
@@ -670,33 +668,29 @@ defineExpose({
     color: var(--vscode-button-foreground);
 }
 
-/* ── Typing 指示器 (Phase 2) ─────────────────────────────── */
+/* ── Typing 指示器 — 图标脉冲动画 ─────────────────────────── */
 .typing-indicator {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 10px;
     padding: 8px 12px;
     margin-bottom: 12px;
-    font-size: 13px;
-    color: var(--vscode-descriptionForeground);
 }
-.typing-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--vscode-descriptionForeground);
-    animation: typing-bounce 1.2s infinite;
+.typing-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    animation: typing-pulse 1.8s ease-in-out infinite;
 }
-.typing-dot:nth-child(2) { animation-delay: 0.2s; }
-.typing-dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes typing-bounce {
-    0%, 100% { opacity: 0.3; transform: translateY(0); }
-    50% { opacity: 1; transform: translateY(-3px); }
+@keyframes typing-pulse {
+    0%, 100% { transform: scale(1); opacity: 0.6; }
+    40% { transform: scale(1.15); opacity: 1; }
+    70% { transform: scale(1.05); opacity: 0.85; }
 }
 .typing-text {
-    margin-left: 8px;
     font-size: 12px;
     opacity: 0.7;
+    color: var(--vscode-descriptionForeground);
 }
 
 /* ── 文件标签 (File Chips) ─────────────────────────────── */

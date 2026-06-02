@@ -858,7 +858,8 @@ export class TuiProcessManager {
         try {
             const resp = await fetch(`http://127.0.0.1:${this._port}/v1/apps/mcp/servers`);
             if (!resp.ok) { logger.warn(`[MCP] servers HTTP ${resp.status}`); return []; }
-            return await resp.json() as Record<string, unknown>[];
+            const data = await resp.json() as any;
+            return Array.isArray(data?.servers) ? data.servers : [];
         } catch (err: any) { logger.warn(`[MCP] servers fetch failed: ${err.message}`); return []; }
     }
 
@@ -869,7 +870,8 @@ export class TuiProcessManager {
             const qs = server ? `?server=${encodeURIComponent(server)}` : '';
             const resp = await fetch(`http://127.0.0.1:${this._port}/v1/apps/mcp/tools${qs}`);
             if (!resp.ok) { logger.warn(`[MCP] tools HTTP ${resp.status}`); return []; }
-            return await resp.json() as Record<string, unknown>[];
+            const data = await resp.json() as any;
+            return Array.isArray(data?.tools) ? data.tools : [];
         } catch (err: any) { logger.warn(`[MCP] tools fetch failed: ${err.message}`); return []; }
     }
 

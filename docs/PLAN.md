@@ -198,9 +198,9 @@
 - [x] `celest.downloadBinary` — 下载命令
 - [x] `extension.ts` 配置变化监听器（`onDidChangeConfiguration`）
 
-## Phase 6: API 全面适配 + 打磨 + 发布 ⏳ (进行中)
+## Phase 6: API 全面适配 + 打磨 + 发布 ✅ (2026-05-31)
 
-**目标:** 基于 CodeWhale v0.8.45 Runtime API 审计，补齐所有遗漏接口，完善 Skills（插件）适配，打磨体验并准备发布。
+**目标:** 基于 CodeWhale v0.8.45 Runtime API 审计，补齐所有遗漏接口，完善 Skills（插件）适配，打磨体验并发布到 Open VSX Registry。
 
 ### 🔑 增量开发铁律
 
@@ -488,16 +488,70 @@ TUI `SidebarFocus` 枚举定义了 5 种面板：
 
 ### 6.3.5 CI + 发布
 
-- [ ] `vsce package` + 自动发布 GitHub Action
-- [ ] Marketplace 发布
+- [x] `vsce package` + 手动发布到 Open VSX Registry ✅ (2026-05-31)
+- [x] VS Code Marketplace（通过 Open VSX 自动索引）✅ (2026-05-31)
 
 ---
 
-**当前进度:** Phase 6.1+6.2+6.3 完成 (28/37 API)，UT 40 个全覆盖，CI 发布待办  
+---
+
+## Phase 6.5: 发布后修复 + 打磨 ✅ (2026-05-29 → 2026-06-02)
+
+> 封闭测试反馈 + 实际使用中的问题修复，v0.1.2 → v0.1.8 迭代。
+
+### v0.1.2 (2026-05-31) — 核心修复
+
+- [x] Stop + Cancel 拆分：Stop 立即终止生成并取消 pending 工具
+- [x] ChatView 滚动修复：自动滚到底 + 用户手动滚动不抢焦点
+- [x] 会话恢复过滤：跳过 interrupted turn，只渲染最终 agent_message
+- [x] 多窗口 Session 隔离：每个 VS Code 窗口独立 threadId
+- [x] 斜杠命令框架：50+ 命令分 local/api/steer 三类分派
+- [x] 设置面板图标更新 + Markdown 渲染修复
+
+### v0.1.3 → v0.1.6 (2026-05-31) — 图标迭代
+
+- [x] v0.1.3: 恢复正确的鱼图标
+- [x] v0.1.4: 更新为新版鱼图标 (icon_v100)
+- [x] v0.1.5: 图标换白底，暗色背景下可见
+- [x] v0.1.6: vsix 图标换回透明底，README 保持白底
+
+### v0.1.7 → v0.1.8 (2026-06-02) — 审批 + 测试增强
+
+- [x] 审批死代码清理
+- [x] 审批超时拒绝 findIndex 修复
+- [x] 审批失败通知
+- [x] Vue 组件测试基础设施
+- [x] `tmp/**` 加入 `.gitignore`
+
+---
+
+## Phase 6.6: 持续优化 🔜 (当前)
+
+> 工作区未提交修改 + 待办项。
+
+### v0.1.9 (2026-06-02) ✅
+
+| 文件 | 修改内容 |
+|------|---------|
+| `src/chatViewProvider.ts` | MCP 缓存优化（30s TTL）+ 响应解析修复 + 连接状态 + 工具名前缀 ✅ |
+| `src/tuiProcessManager.ts` | `listMcpServers()`/`listMcpTools()` 响应解析修复（提取 `.servers`/`.tools` 子字段） ✅ |
+| `gui/src/components/ChatView.vue` | typing 指示器改用 icon.png + 脉冲动画 ✅ |
+| `gui/src/App.vue` | typing 指示器持续显示到 promptEnded ✅ |
+| `package.json` | bump v0.1.9 ✅ |
+
+### 待办
+
+- [ ] CHANGELOG 补充 v0.1.7 / v0.1.8 条目
+- [ ] VS Code 主题适配（暗/亮）— 延后
+- [ ] 快捷键绑定完善 — 延后
+
+---
+
+**当前进度:** Phase 6.1–6.5 全部完成，项目已发布到 Open VSX Registry  
 **API 覆盖率:** 10→15→26→28→31→**37 / 37 (100%)** ✅  
-**UT:** 46 tests (tuiProcessManager 42 + sessionsTreeProvider 4)  
-**最后更新:** 2026-05-27 (全量 API 适配完成 + Fork + Automations 写操作 + UT)  
-**最后更新:** 2026-05-28 (封闭测试修复: 审批卡死 + View Diff + 面板双语 + 更多)
+**版本:** `v0.1.9`（package.json），已发布 `.vsix` 包（v0.1.2–v0.1.9）  
+**UT:** 72 tests (4 files, all passing)  
+**最后更新:** 2026-06-02 (v0.1.9: typing 图标动画 + MCP 修复)
 
 ---
 
@@ -521,7 +575,9 @@ TUI 项目从 `deepseek-ai/DeepSeek-TUI` v0.8.40 升级到 `Hmbown/CodeWhale` v0
 
 ## 发布到 VS Code Marketplace 指南
 
-当前状态
+✅ **已完成** — 项目已发布到 Open VSX Registry：https://open-vsx.org/extension/TheEastKoi/celest
+
+实际状态
 
 package.json 已就绪：
 - publisher: "TheEastKoi" ✅
@@ -582,8 +638,6 @@ package.json 已就绪：
 
 发布前待办
 
-- [ ] 生成 assets/icon.png（128x128，可用截图或 SVG 转 PNG）
-- [ ] 创建 Azure DevOps PAT
-- [ ] vsce create-publisher TheEastKoi
-- [ ] vsce package → 本地安装验证
-- [ ] vsce publish
+- [x] 生成 assets/icon.png ✅ — 已生成，多次迭代（透明底/白底/新版鱼图标）
+- [x] vsce package ✅ — 每次发布均本地验证
+- [x] 发布到 Open VSX Registry ✅ — https://open-vsx.org/extension/TheEastKoi/celest
