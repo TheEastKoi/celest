@@ -14,7 +14,7 @@
             <div class="split-right" :style="{ flex: `0 0 ${rightWidth}px` }">
                 <!-- 工作流 Work -->
                 <div class="right-panel">
-                    <div class="panel-header" @click="panelWorkOpen = !panelWorkOpen">
+                    <div class="panel-header" @click="togglePanel('work', panelWorkOpen)">
                         <span class="panel-arrow">{{ panelWorkOpen ? '▼' : '▶' }}</span>
                         <span class="panel-label">📋 {{ t('panel.work') }}</span>
                         <span v-if="todos.length > 0" class="panel-badge">{{ incompleteTodoCount }}</span>
@@ -23,7 +23,7 @@
                 </div>
                 <!-- 任务流 Tasks -->
                 <div class="right-panel">
-                    <div class="panel-header" @click="panelTasksOpen = !panelTasksOpen">
+                    <div class="panel-header" @click="togglePanel('tasks', panelTasksOpen)">
                         <span class="panel-arrow">{{ panelTasksOpen ? '▼' : '▶' }}</span>
                         <span class="panel-label">📌 {{ t('panel.tasks') }}</span>
                     </div>
@@ -31,7 +31,7 @@
                 </div>
                 <!-- 子代理 Agents -->
                 <div class="right-panel">
-                    <div class="panel-header" @click="panelAgentsOpen = !panelAgentsOpen">
+                    <div class="panel-header" @click="togglePanel('agents', panelAgentsOpen)">
                         <span class="panel-arrow">{{ panelAgentsOpen ? '▼' : '▶' }}</span>
                         <span class="panel-label">🤖 {{ t('panel.agents') }}</span>
                         <span v-if="agentsList.length > 0" class="panel-badge">{{ agentsList.length }}</span>
@@ -40,7 +40,7 @@
                 </div>
                 <!-- 技能 Skills -->
                 <div class="right-panel">
-                    <div class="panel-header" @click="panelSkillsOpen = !panelSkillsOpen">
+                    <div class="panel-header" @click="togglePanel('skills', panelSkillsOpen)">
                         <span class="panel-arrow">{{ panelSkillsOpen ? '▼' : '▶' }}</span>
                         <span class="panel-label">🧩 {{ t('panel.skills') }}</span>
                         <span v-if="skillsList.length > 0" class="panel-badge">{{ skillsList.length }}</span>
@@ -51,7 +51,7 @@
                 </div>
                 <!-- 上下文 Context -->
                 <div class="right-panel">
-                    <div class="panel-header" @click="panelContextOpen = !panelContextOpen">
+                    <div class="panel-header" @click="togglePanel('context', panelContextOpen)">
                         <span class="panel-arrow">{{ panelContextOpen ? '▼' : '▶' }}</span>
                         <span class="panel-label">🔍 {{ t('panel.context') }}</span>
                     </div>
@@ -61,7 +61,7 @@
                 </div>
                 <!-- 统计用量 Usage -->
                 <div class="right-panel">
-                    <div class="panel-header" @click="panelUsageOpen = !panelUsageOpen">
+                    <div class="panel-header" @click="togglePanel('usage', panelUsageOpen)">
                         <span class="panel-arrow">{{ panelUsageOpen ? '▼' : '▶' }}</span>
                         <span class="panel-label">📈 {{ t('panel.usage') }}</span>
                     </div>
@@ -75,7 +75,7 @@
             <div v-if="!tuiReady" class="connecting-banner">{{ connectingText }}</div>
             <InputBox ref="inputBoxRef" @send="handleSend" @stop="handleStop" @pasteFiles="handlePasteFiles" @pasteImage="handlePasteImage" :disabled="!tuiReady" :showStop="promptRunning" :promptRunning="promptRunning" :files="fileList" :workspaceRoot="workspaceRoot" />
         </footer>
-        <ContextBar :modelId="currentModel" :availableModels="availableModels" :mode="currentMode" :turnCount="turnCount" :sessionId="sessionId" :gitBranch="gitBranch" :gitDirty="gitDirty" @cycleMode="cycleMode" @switchModel="handleModelSwitch" />
+        <ContextBar :modelId="currentModel" :availableModels="availableModels" :providerApiKeys="providerApiKeys" :mode="currentMode" :turnCount="turnCount" :sessionId="sessionId" :gitBranch="gitBranch" :gitDirty="gitDirty" @cycleMode="cycleMode" @switchModel="handleModelSwitch" @openSettings="openSettings" />
 
         <ApprovalPopup
             :visible="showApproval"
@@ -109,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import ChatView from './components/ChatView.vue';
 import InputBox from './components/InputBox.vue';
 import ContextBar from './components/ContextBar.vue';
@@ -118,7 +118,7 @@ import WorkPanel from './components/WorkPanel.vue';
 import ApprovalPopup from './components/ApprovalPopup.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import iconPng from './assets/icon.png';
-import { getAvailableModels, setLocale, t } from './i18n';
+import { getAvailableModels, getModelsForProvider, setLocale, t } from './i18n';
 import type { FileItem } from './components/AtMentionPopup.vue';
 import HelpPanel from './components/HelpPanel.vue';
 import TasksPanel from './components/TasksPanel.vue';
@@ -162,7 +162,14 @@ const
     requestSeq = ref(0),
     currentModel = ref('deepseek-v4-flash'),
     currentMode = ref('agent'),
-    availableModels = getAvailableModels();
+    currentProvider = ref('deepseek'),
+    providerApiKeys = ref<Record<string, boolean>>({}),
+    allModels = getAvailableModels(),
+    availableModels = computed(() =>
+        getModelsForProvider(currentProvider.value).length > 0
+            ? getModelsForProvider(currentProvider.value)
+            : allModels
+    );
 
 const showApproval = ref(false),
     approvalId = ref(''),
@@ -191,6 +198,9 @@ const showSettings = ref(false),
     ocrAvailable = ref(false),
     connectingText = ref(t('connecting'));
 
+// ResizeObserver 引用（避免重复创建导致泄漏）
+let splitResizeObserver: ResizeObserver | null = null;
+
 const incompleteTodoCount = computed(() => todos.value.filter((t: any) => t.status === 'in_progress' || t.status === 'pending').length);
 
 function openSettings() { showSettings.value = true; vscode?.postMessage({ type: 'getSettings' }); }
@@ -200,7 +210,18 @@ function handleSettingsSave(config: any) {
     vscode?.postMessage({ type: 'saveSettings', config });
     showSettings.value = false;
     if (config.defaultModel) currentModel.value = config.defaultModel;
+    if (config.provider) currentProvider.value = config.provider;
     if (config.locale) { setLocale(config.locale as 'zh-CN' | 'en'); connectingText.value = t('connecting'); }
+    // 立即更新 Provider API Key 状态（Bug #2a / #6）
+    if (config.providerKeys && typeof config.providerKeys === 'object') {
+        const newKeys: Record<string, boolean> = { ...providerApiKeys.value };
+        for (const [pid, key] of Object.entries(config.providerKeys as Record<string, string>)) {
+            if (key && typeof key === 'string' && key.trim()) {
+                newKeys[pid] = true;
+            }
+        }
+        providerApiKeys.value = newKeys;
+    }
 }
 function handleDownloadBinary() { vscode?.postMessage({ type: 'downloadBinary', force: true }); }
 function handleCheckUpdate() { vscode?.postMessage({ type: 'checkUpdate' }); }
@@ -246,6 +267,15 @@ function initSplitWidth() {
     leftWidth.value = Math.floor(available * 0.65);
     rightWidth.value = Math.floor(available * 0.35);
 }
+
+/** 创建或复用 ResizeObserver（单例模式，避免泄漏） */
+function ensureResizeObserver() {
+    if (splitResizeObserver) return; // 已存在，复用
+    if (!splitRef.value) return;
+    splitResizeObserver = new ResizeObserver(() => initSplitWidth());
+    splitResizeObserver.observe(splitRef.value);
+}
+
 function startResize(e: MouseEvent) {
     isResizing.value = true;
     const startX = e.clientX, startLeft = leftWidth.value, startRight = rightWidth.value;
@@ -305,23 +335,72 @@ function parseUpdatePlan(raw: unknown) {
     } catch { /* */ }
 }
 
-// ── 面板自动折叠：内容为空时收起，有内容时展开 ──
+// ── 面板自动展开：首次有内容时展开，之后由用户控制 ──
+// 使用 Set 记录"已自动展开过"的面板，避免重复覆盖用户手动操作
+const _autoOpenedPanels = new Set<string>();
+
 watch([todos, () => plan.value.steps.length], () => {
     const hasContent = todos.value.length > 0 || plan.value.steps.length > 0;
-    panelWorkOpen.value = hasContent;
+    if (hasContent && !_autoOpenedPanels.has('work')) {
+        panelWorkOpen.value = true;
+        _autoOpenedPanels.add('work');
+    } else if (!hasContent) {
+        panelWorkOpen.value = false;
+        _autoOpenedPanels.delete('work');
+    }
 }, { immediate: true });
-watch(taskList, (t) => { panelTasksOpen.value = t.length > 0; }, { immediate: true });
-watch(agentsList, (a) => { panelAgentsOpen.value = a.length > 0; }, { immediate: true });
-watch(skillsList, (s) => { panelSkillsOpen.value = s.length > 0; }, { immediate: true });
-watch(contextUsage, (c) => { panelContextOpen.value = c != null; }, { immediate: true });
-watch(contextUsage, (c) => { panelUsageOpen.value = c != null; }, { immediate: true });
+watch(taskList, (t) => {
+    if (t.length > 0 && !_autoOpenedPanels.has('tasks')) {
+        panelTasksOpen.value = true;
+        _autoOpenedPanels.add('tasks');
+    } else if (t.length === 0) {
+        panelTasksOpen.value = false;
+        _autoOpenedPanels.delete('tasks');
+    }
+}, { immediate: true });
+watch(agentsList, (a) => {
+    if (a.length > 0 && !_autoOpenedPanels.has('agents')) {
+        panelAgentsOpen.value = true;
+        _autoOpenedPanels.add('agents');
+    } else if (a.length === 0) {
+        panelAgentsOpen.value = false;
+        _autoOpenedPanels.delete('agents');
+    }
+}, { immediate: true });
+watch(skillsList, (s) => {
+    if (s.length > 0 && !_autoOpenedPanels.has('skills')) {
+        panelSkillsOpen.value = true;
+        _autoOpenedPanels.add('skills');
+    } else if (s.length === 0) {
+        panelSkillsOpen.value = false;
+        _autoOpenedPanels.delete('skills');
+    }
+}, { immediate: true });
+watch(contextUsage, (c) => {
+    if (c != null && !_autoOpenedPanels.has('context')) {
+        panelContextOpen.value = true;
+        _autoOpenedPanels.add('context');
+    }
+}, { immediate: true });
+watch(contextUsage, (c) => {
+    if (c != null && !_autoOpenedPanels.has('usage')) {
+        panelUsageOpen.value = true;
+        _autoOpenedPanels.add('usage');
+    }
+}, { immediate: true });
+
+// 用户点击面板 header 时标记为"手动控制"
+function togglePanel(panelKey: string, currentOpen: { value: boolean }) {
+    currentOpen.value = !currentOpen.value;
+    _autoOpenedPanels.add(panelKey); // 标记为用户已干预
+}
 
 onMounted(async () => {
     await nextTick(); await nextTick(); initSplitWidth();
-    if (splitRef.value) { new ResizeObserver(() => initSplitWidth()).observe(splitRef.value); }
+    ensureResizeObserver();
     window.addEventListener('resize', initSplitWidth);
     watch(tuiReady, async (ready) => {
-        if (ready) { await nextTick(); await nextTick(); initSplitWidth(); if (splitRef.value) { new ResizeObserver(() => initSplitWidth()).observe(splitRef.value); } }
+        if (ready) { await nextTick(); await nextTick(); initSplitWidth(); ensureResizeObserver(); }
     });
 
     window.addEventListener('message', (e: MessageEvent) => {
@@ -453,9 +532,14 @@ onMounted(async () => {
             nodeVersion.value = msg.nodeVersion || '';
             vscodeVersion.value = msg.vscodeVersion || '';
             if (msg.config?.defaultModel) currentModel.value = msg.config.defaultModel;
+            if (msg.config?.provider) currentProvider.value = msg.config.provider;
+            if (msg.config?.providerApiKeys) providerApiKeys.value = msg.config.providerApiKeys;
             if (msg.config?.locale) { setLocale(msg.config.locale as 'zh-CN' | 'en'); connectingText.value = t('connecting'); }
             break;
-        case 'settingsSaved': break;
+        case 'settingsSaved':
+            // 重新同步 provider 状态（确保与 SecretStore 一致）
+            vscode?.postMessage({ type: 'getSettings' });
+            break;
         case 'modelSwitched': currentModel.value = msg.model || currentModel.value; break;
         case 'modeSwitched': currentMode.value = msg.mode || currentMode.value; break;
         case 'updateCheckResult': break; // 后端已弹窗通知
@@ -465,6 +549,17 @@ onMounted(async () => {
         case 'localeChanged': setLocale(msg.locale as 'zh-CN' | 'en'); connectingText.value = t('connecting'); break;
     }});
     vscode?.postMessage({ type: 'ready' }); vscode?.postMessage({ type: 'getFiles' });
+});
+
+onUnmounted(() => {
+    // 清理 ResizeObserver
+    if (splitResizeObserver) {
+        splitResizeObserver.disconnect();
+        splitResizeObserver = null;
+    }
+    // 清理 window 事件监听器
+    window.removeEventListener('resize', initSplitWidth);
+    // message 监听器在 WebView 生命周期中不需要移除（组件销毁时 WebView 也销毁）
 });
 </script>
 

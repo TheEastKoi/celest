@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import { logger } from './logger';
 
-/** GitHub Release 信息 — deepseek-tui 仓库 */
+/** GitHub Release 信息 — codewhale-tui 仓库 */
 const GITHUB_RELEASE_API = `https://api.github.com/repos/Hmbown/CodeWhale/releases/latest`;
 
 interface DownloadProgress {
@@ -16,7 +16,7 @@ interface DownloadProgress {
 
 /**
  * 二进制自动下载器
- * 从 GitHub Release 下载对应平台的 deepseek-tui 二进制文件。
+ * 从 GitHub Release 下载对应平台的 codewhale-tui 二进制文件。
  * 如果下载失败（如 Release 不存在），提示用户手动构建或指定路径。
  */
 export class BinaryDownloader {
@@ -69,10 +69,10 @@ export class BinaryDownloader {
         return fs.existsSync(this.getLocalBinaryPath());
     }
 
-    /** 检查全局 PATH 中是否有 deepseek-tui */
+    /** 检查全局 PATH 中是否有 codewhale-tui */
     hasGlobalBinary(): boolean {
         try {
-            const cmd = os.platform() === 'win32' ? 'where deepseek-tui' : 'which deepseek-tui';
+            const cmd = os.platform() === 'win32' ? 'where codewhale-tui' : 'which codewhale-tui';
             execSync(cmd, { stdio: 'ignore' });
             return true;
         } catch {
@@ -88,7 +88,7 @@ export class BinaryDownloader {
             });
             if (!resp.ok) {
                 if (resp.status === 404) {
-                    throw new Error('No binary release found. Build deepseek-tui from source or set celest.binaryPath in VS Code settings.');
+                    throw new Error('No binary release found. Build codewhale-tui from source or set celest.binaryPath in VS Code settings.');
                 }
                 throw new Error(`GitHub API returned ${resp.status}`);
             }
@@ -136,7 +136,7 @@ export class BinaryDownloader {
             const release = await this.getLatestRelease();
             logger.info('[BinaryDownloader] downloading from:', release.downloadUrl);
             
-            this._onProgress.fire({ stage: 'downloading', percent: 5, message: `Downloading deepseek-tui ${release.tagName}...` });
+            this._onProgress.fire({ stage: 'downloading', percent: 5, message: `Downloading codewhale-tui ${release.tagName}...` });
             
             const resp = await fetch(release.downloadUrl);
             if (!resp.ok) {
@@ -237,8 +237,8 @@ export class BinaryDownloader {
         // 3. 开发环境路径
         if (os.platform() === 'win32') {
             const devCandidates = [
-                path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'release', 'deepseek-tui.exe'),
-                path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'debug', 'deepseek-tui.exe'),
+                path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'release', 'codewhale-tui.exe'),
+                path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'debug', 'codewhale-tui.exe'),
             ];
             for (const c of devCandidates) {
                 if (fs.existsSync(c)) return c;
@@ -247,7 +247,7 @@ export class BinaryDownloader {
         
         // 4. PATH 中的全局二进制
         if (this.hasGlobalBinary()) {
-            return 'deepseek-tui';
+            return 'codewhale-tui';
         }
         
         return null;

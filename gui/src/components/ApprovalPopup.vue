@@ -126,10 +126,18 @@ watch(() => props.visible, async (val) => {
         timer = setInterval(() => {
             countdown.value--;
             if (countdown.value <= 0) {
-                if (!decided.value) {
-                    commitOption(DENY_INDEX); // auto-deny
+                // 安全清理定时器
+                if (timer) {
+                    clearInterval(timer);
+                    timer = null;
                 }
-                if (timer) clearInterval(timer);
+                // 原子性检查 + 自动 deny
+                // 注意：在 JS 单线程中，这里不存在真正的并发竞争
+                // 但如果用户在 count=1 时精确点击了按钮，commitOption 已经在同步执行中
+                // decided.value 会在 commitOption 中被设为 true，这里的检查会跳过
+                if (!decided.value) {
+                    commitOption(DENY_INDEX);
+                }
             }
         }, 1000);
         await nextTick();
@@ -149,12 +157,24 @@ onUnmounted(() => {
 // ── Methods ───────────────────────────────────────────────────
 
 function commitOption(idx: number) {
+    // 原子性检查：使用函数式更新避免竞争
+    // 如果已经决定，直接返回（倒计时和用户点击都走这里）
     if (decided.value) return;
+
     const opt = options[idx];
     if (!opt) return;
+
+    // 立即标记为已决定（同步，在同一事件循环中）
     decided.value = true;
     decisionText.value = opt.label;
-    if (timer) clearInterval(timer);
+
+    // 清理定时器
+    if (timer) {
+        clearInterval(timer);
+        timer = null;
+    }
+
+    // 发送决策
     emit('decide', opt.decision, opt.remember);
 }
 

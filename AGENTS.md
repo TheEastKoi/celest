@@ -8,7 +8,7 @@
 |----|------|------|
 | **VS Code 适配层** | `src/` | 只负责命令注册、WebView 管理、进程通信。**禁止在此层实现业务逻辑、LLM 调用、工具执行。** |
 | **前端 GUI** | `gui/src/` | Vue 3 组件。**禁止直接调用 Node.js API、文件系统、子进程。** 与后端通信只能通过 `postMessage`。 |
-| **TUI 后端** | `deepseek-tui` 独立进程 | 不在此仓库。通过 JSON-RPC over stdio 通信。**禁止在插件内重新实现 TUI 的功能。** |
+| **TUI 后端** | `codewhale-tui` 独立进程 | 不在此仓库。通过 HTTP/SSE 通信。**禁止在插件内重新实现 TUI 的功能。** |
 
 ## 二、代码规范
 

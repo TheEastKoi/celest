@@ -1,7 +1,7 @@
 {
   "name": "celest",
   "author": "TheEastKoi",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "repository": {
     "type": "git",
     "url": "https://github.com/TheEastKoi/celest"
@@ -68,12 +68,12 @@
         "celest.autoDownloadBinary": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically download deepseek-tui binary on first use"
+          "description": "Automatically download codewhale-tui binary on first use"
         },
         "celest.binaryPath": {
           "type": "string",
           "default": "",
-          "description": "Custom path to deepseek-tui binary (leave empty for auto-download)"
+          "description": "Custom path to codewhale-tui binary (leave empty for auto-download)"
         },
         "celest.locale": {
           "type": "string",
@@ -87,7 +87,7 @@
         "celest.provider": {
           "type": "string",
           "default": "deepseek",
-          "description": "API provider (deepseek, openai, nvidia-nim, ollama, dashscope)"
+          "description": "API provider (deepseek, openai, nvidia-nim, ollama, huggingface, arcee, moonshot, sglang, vllm, siliconflow, siliconflow-CN, fireworks, xiaomi-mimo, wanjie-ark, volcengine, openrouter, novita, atlascloud, dashscope)"
         },
         "celest.reasoningEffort": {
           "type": "string",
@@ -100,6 +100,11 @@
             "max"
           ],
           "description": "Model reasoning depth"
+        },
+        "celest.pathSuffix": {
+          "type": "string",
+          "default": "",
+          "description": "Override API path suffix for OpenAI-compatible endpoints (e.g. /chat/completions). Leave empty for default."
         },
         "celest.hiddenSessions": {
           "type": "array",

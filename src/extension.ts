@@ -6,6 +6,9 @@ import { BinaryDownloader } from './binaryDownloader';
 import { initSecretStore, getSecretStore } from './secretStorage';
 import { logger } from './logger';
 
+// 模块级引用（供 deactivate 使用）
+let tuiManager: TuiProcessManager | null = null;
+
 export function activate(context: vscode.ExtensionContext) {
     logger.info('activate() called');
 
@@ -13,12 +16,13 @@ export function activate(context: vscode.ExtensionContext) {
     const secretStore = initSecretStore(context);
 
     // ── TUI 进程管理器 ──
-    const tuiManager = new TuiProcessManager(context);
+    tuiManager = new TuiProcessManager(context);
 
     // ── Phase 5: 读取初始配置并设置 ──
     const config = vscode.workspace.getConfiguration('celest');
     const defaultModel = config.get<string>('defaultModel') || 'deepseek-v4-flash';
-    tuiManager.setConfig({ model: defaultModel });
+    const pathSuffix = config.get<string>('pathSuffix') || '';
+    tuiManager.setConfig({ model: defaultModel, pathSuffix });
 
     // 异步加载 API Key
     secretStore.getApiKey().then(apiKey => {
@@ -110,7 +114,7 @@ export function activate(context: vscode.ExtensionContext) {
             logger.error('Failed to start TUI engine:', err.message);
             if (err.message.includes('not found') && autoDownload) {
                 const choice = await vscode.window.showInformationMessage(
-                    'deepseek-tui binary not found. Download automatically?',
+                    'codewhale-tui binary not found. Download automatically?',
                     'Download Now',
                     'Locate Manually',
                     'Cancel',
@@ -124,7 +128,7 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                 } else if (choice === 'Locate Manually') {
                     const result = await vscode.window.showOpenDialog({
-                        title: 'Select deepseek-tui binary',
+                        title: 'Select codewhale-tui binary',
                         filters: process.platform === 'win32' ? { 'Executables': ['exe'] } : { 'All files': ['*'] },
                         canSelectFiles: true,
                         canSelectMany: false,
@@ -149,4 +153,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
     logger.info('deactivate() called');
+    // 清理 TUI 进程（避免留下孤儿进程）
+    if (tuiManager) {
+        tuiManager.dispose();
+        tuiManager = null;
+    }
 }

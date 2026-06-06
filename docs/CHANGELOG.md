@@ -1,3 +1,33 @@
+## 2026-06-07 (v0.1.11) — 最终版本
+
+> **本项目即日起暂停更新。** 感谢所有用户的试用和支持。
+
+### 新增
+
+- **Provider 生态同步** — 对齐 CodeWhale TUI v0.8.53，全量 24 个 Provider 支持：
+  DeepSeek / OpenAI / NVIDIA NIM / Ollama / Hugging Face / Arcee AI / Moonshot (Kimi) / SGLang / vLLM / SiliconFlow (国际站+中国站) / Fireworks AI / Xiaomi MiMo / Wanjie Ark / Volcengine Ark / OpenRouter / Novita AI / AtlasCloud / DashScope (阿里云百炼)
+- **Provider 配置管理** — 设置面板新增 Provider 凭证页，为每个 Provider 独立配置 API Key、Base URL、默认模型，凭证安全存储在系统密钥链
+- **API Path Suffix** — 新增 `celest.pathSuffix` 配置项，支持自建网关或非标准端点的路径覆写
+- **端口冲突自动重试** — TUI 进程启动时检测端口冲突，自动重试最多 3 次
+- **ToolCache 优化** — 5 分钟 TTL 过期 + 超限时清理 30% 最旧条目，防止内存泄露
+- **新增工具审计** — 15+ 工具的低影响自动审批支持：`task_shell_wait`, `git_status`/`git_diff`/`git_show`/`git_log`/`git_blame`, `handle_read`, `agent_open`/`agent_eval`/`agent_close`, `rlm_open`/`rlm_eval`/`rlm_close`, `run_tests`, `run_verifiers`, `task_create`, `note`
+
+### 修复
+
+- **SSE 事件污染** — 新增 `generation` 机制，会话重置后自动丢弃旧会话的 SSE 事件，防止交叉污染
+- **CSP 安全加固** — nonce 改用 `crypto.randomBytes(16)` 生成，替代 `Math.random()`
+- **deactivate 清理** — 扩展关闭时正确清理 TUI 进程，避免留下孤儿进程
+- **findBinaryFallback 清理** — 移除硬编码的开发者路径依赖，改为统一依赖系统 PATH
+- **配置描述更新** — provider 列表、二进制名称等全量更新对齐新版本
+
+### 变更
+
+- **命名统一** — `deepseek-tui` → `codewhale-tui`，全量文档/配置/代码/用户提示更新
+- **Provider 凭证迁移** — 旧版全局 API Key 自动迁移到 `deepseek` Provider 命名空间
+- **模块级引用** — `extension.ts` 中 `tuiManager` 提至模块级，以便 `deactivate()` 正确访问
+
+---
+
 ## 2026-06-02 (v0.1.10)
 
 ### 修复

@@ -22,6 +22,11 @@
   </a>
 </p>
 
+<blockquote>
+<p><strong>🚧 This project has paused updates (v0.1.11 final release).</strong><br>
+Thank you all for trying and providing feedback. The repository remains open — feel free to fork and build upon it.</p>
+</blockquote>
+
 ---
 
 ## Why Celest?

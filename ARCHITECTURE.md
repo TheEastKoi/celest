@@ -112,8 +112,12 @@ Extension Host ←→ CodeWhale TUI:
 | 4 | 审批弹窗 + Shell 实时输出 + Diff | ✅ |
 | 5 | 设置面板 + 模型/模式切换 + API Key + i18n + 二进制下载 | ✅ |
 | 6 | 打包发布 + Marketplace | ⏳ |
+| 6.1 | Skills API + 工作区状态 + 用量统计 | ✅ |
+| 6.2 | 会话管理 + 线程详情 + 后台任务 | ✅ |
+| 6.3 | Automations 自动化任务 + 子代理事件 | ✅ |
+| 7 | Provider 生态同步 (v0.8.53) + 命名统一 | ✅ |
 
-## CodeWhale 迁移 (v0.8.40 → v0.8.44)
+## CodeWhale 迁移 (v0.8.40 → v0.8.44+)
 
 | 项目 | 旧 | 新 |
 |------|-----|-----|
@@ -122,3 +126,5 @@ Extension Host ←→ CodeWhale TUI:
 | 默认端口 | 7878 | 8787 |
 | 仓库 | `deepseek-ai/DeepSeek-TUI` | `Hmbown/CodeWhale` |
 | HTTP API | 不变 | 不变 |
+| 当前 TUI 版本 | v0.8.44 | v0.8.53 |
+| 会话文件 | `~/.deepseek/` | `~/.codewhale/` (兼容读取旧路径) |

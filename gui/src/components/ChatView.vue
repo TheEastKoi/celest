@@ -65,8 +65,8 @@
 
         <!-- typing 指示器 — 图标 + 脉冲动画 -->
         <div v-if="typing" class="typing-indicator">
-            <img :src="iconPng" class="typing-icon" alt="Celest thinking" />
-            <span class="typing-text">Celest is thinking...</span>
+            <img :src="iconPng" class="typing-icon" alt="Celest Working" />
+            <span class="typing-text">Celest is Working...</span>
         </div>
     </div>
 </template>
@@ -87,6 +87,24 @@ const emit = defineEmits<{
 declare function acquireVsCodeApi(): any;
 let vscodeApi: any = null;
 try { vscodeApi = acquireVsCodeApi?.(); } catch { /* not in VS Code env */ }
+
+/** HTML 属性转义 — 防止 XSS 注入 */
+function escapeHtmlAttr(s: string): string {
+    return s
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+/** HTML 文本转义 */
+function escapeHtml(s: string): string {
+    return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
 
 /** 文件类型 → 图标文字 */
 function fileIcon(ext: string): string {
@@ -113,20 +131,23 @@ function fileColor(ext: string): string {
     return '#6b7280';
 }
 
-/** 将文本中的 @path 替换为文件标签 HTML */
+/** 将文本中的 @path 替换为文件标签 HTML（已转义防 XSS） */
 function renderFileChips(text: string): string {
     if (!text) return '';
     // 匹配 @ 后跟非空白字符序列（支持 / . - _ 等）
     const re = /@(\[([^\]]+)\]|([^\s]+))/g;
     return text.replace(re, (_m, _g1, bracketed: string | undefined, plain: string | undefined) => {
-        const cleanPath = (bracketed || plain || '').replace(/^['"]|['"]$/g, '');
-        if (!cleanPath) return _m;
-        const parts = cleanPath.split(/[/\\]/);
-        const name = parts.pop() || cleanPath;
+        const rawPath = (bracketed || plain || '').replace(/^['"]|['"]$/g, '');
+        if (!rawPath) return _m;
+        // 转义路径用于 HTML 属性和文本内容
+        const safePath = escapeHtmlAttr(rawPath);
+        const parts = rawPath.split(/[/\\]/);
+        const name = parts.pop() || rawPath;
+        const safeName = escapeHtml(name);
         const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() || '' : '';
         const isDir = !ext && !name.includes('.');
         const icon = isDir ? '📁' : (ext.slice(0, 3).toUpperCase() || '?');
-        return `<span class="file-chip" data-path="${cleanPath}" title="${cleanPath}"><span class="chip-icon chip-${isDir ? 'dir' : ext}">${icon}</span><span class="chip-name">${name}</span></span>`;
+        return `<span class="file-chip" data-path="${safePath}" title="${safePath}"><span class="chip-icon chip-${isDir ? 'dir' : ext}">${icon}</span><span class="chip-name">${safeName}</span></span>`;
     });
 }
 
@@ -345,6 +366,41 @@ function clearMessages() {
 
 // ── LocalStorage Persistence (Phase 2) ─────────────────────────
 
+const MAX_MESSAGES = 100;              // 最多保留 100 条消息
+const MAX_MESSAGE_SIZE = 10 * 1024;    // 单条消息最大 10KB
+const MAX_STORAGE_SIZE = 4 * 1024 * 1024; // 总存储上限 4MB（保守值，避免接近 5MB 限制）
+
+/** 序列化消息时裁剪大字段 */
+function serializeMessages(msgs: Message[]): Message[] {
+    return msgs.map(msg => {
+        if (!msg.parts) return msg;
+        const trimmedParts = msg.parts.map(part => {
+            if (part.type === 'tool_call') {
+                // 工具调用：裁剪 arguments 和 result
+                const trimmed: ChatPart = { ...part };
+                if (part.arguments) {
+                    const argsStr = JSON.stringify(part.arguments);
+                    if (argsStr.length > MAX_MESSAGE_SIZE) {
+                        trimmed.arguments = { _truncated: true, preview: argsStr.slice(0, 200) + '...' };
+                    }
+                }
+                if (part.result) {
+                    const resultStr = typeof part.result === 'string' ? part.result : JSON.stringify(part.result);
+                    if (resultStr.length > MAX_MESSAGE_SIZE) {
+                        trimmed.result = resultStr.slice(0, MAX_MESSAGE_SIZE) + '\n... [truncated]';
+                    }
+                }
+                return trimmed;
+            }
+            if (part.type === 'text' && part.content && part.content.length > MAX_MESSAGE_SIZE) {
+                return { ...part, content: part.content.slice(0, MAX_MESSAGE_SIZE) + '\n... [truncated]' };
+            }
+            return part;
+        });
+        return { ...msg, parts: trimmedParts };
+    });
+}
+
 /** 从 localStorage 恢复消息 */
 function loadFromStorage() {
     try {
@@ -360,20 +416,46 @@ function loadFromStorage() {
     }
 }
 
-/** 保存消息到 localStorage（防抖 500ms） */
+/** 保存消息到 localStorage（防抖 500ms，含大小限制） */
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 function saveToStorage() {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         try {
-            const toSave = messages.value;
+            let toSave = messages.value;
+
+            // 1. 裁剪大字段
+            toSave = serializeMessages(toSave);
+
+            // 2. 限制消息数量（保留最新）
+            if (toSave.length > MAX_MESSAGES) {
+                toSave = toSave.slice(-MAX_MESSAGES);
+            }
+
+            // 3. 检查总大小
+            const serialized = JSON.stringify(toSave);
+            if (serialized.length > MAX_STORAGE_SIZE) {
+                // 超限时逐条减少旧消息
+                while (toSave.length > 10 && JSON.stringify(toSave).length > MAX_STORAGE_SIZE * 0.8) {
+                    toSave = toSave.slice(1);
+                }
+            }
+
             if (toSave.length > 0) {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
             } else {
                 localStorage.removeItem(STORAGE_KEY);
             }
-        } catch {
-            // 存储满 → 静默失败
+        } catch (e) {
+            // 存储满 → 尝试清理旧消息后重试
+            console.warn('[ChatView] localStorage save failed, clearing old messages', e);
+            try {
+                const minimal = messages.value.slice(-20); // 只保留最新 20 条
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeMessages(minimal)));
+            } catch {
+                // 仍然失败 → 放弃持久化，避免阻塞 UI
+                console.error('[ChatView] localStorage completely full, persistence disabled');
+            }
         }
     }, 500);
 }
@@ -381,8 +463,19 @@ function saveToStorage() {
 // 监听消息变化并自动保存
 watch(messages, () => saveToStorage(), { deep: true });
 
-// 组件挂载时不加载 — 等收到 workspace 后 setStorageWorkspace 会触发加载
-onMounted(() => {});
+// 组件挂载时设置超时恢复（防止 workspaceStatus 不返回导致消息永远不加载）
+onMounted(() => {
+    if (!_wsSet) {
+        // 3 秒后如果仍未收到 workspace，使用默认 key 加载
+        setTimeout(() => {
+            if (!_wsSet && messages.value.length === 0) {
+                console.warn('[ChatView] workspace not received in 3s, loading from default storage');
+                loadFromStorage();
+                nextTick(() => requestAnimationFrame(() => scrollToBottom(true)));
+            }
+        }, 3000);
+    }
+});
 
 // ── Helpers ───────────────────────────────────────────────────
 

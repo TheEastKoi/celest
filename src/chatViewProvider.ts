@@ -11,7 +11,9 @@ import { logger } from './logger';
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _promptSeq = 0;
-    private _toolCache = new Map<string, { toolName: string; args: Record<string, unknown> }>();
+    private _toolCache = new Map<string, { toolName: string; args: Record<string, unknown>; ts: number }>();
+    private static readonly TOOL_CACHE_MAX = 200; // 最大缓存条目数
+    private static readonly TOOL_CACHE_TTL = 5 * 60 * 1000; // 5 分钟过期
     private _taskPollTimer: ReturnType<typeof setInterval> | null = null;
     private _lastTasks: any[] = [];
     private _binaryDownloader: BinaryDownloader;
@@ -25,6 +27,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         code_execution:          { type: '代码执行',           impact: '高 — 执行 Python 代码' },
         js_execution:            { type: '代码执行',           impact: '高 — 执行 JavaScript 代码' },
         task_shell_start:        { type: '后台 Shell 命令',    impact: '高 — 后台执行系统命令' },
+        task_shell_wait:         { type: '后台 Shell 等待',    impact: '高 — 后台执行系统命令' },
         list_dir:                { type: '目录列表',           impact: '低 — 只读操作' },
         read_file:               { type: '文件读取',           impact: '低 — 只读操作' },
         grep_files:              { type: '内容搜索',           impact: '低 — 只读操作' },
@@ -35,6 +38,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         github_pr_context:       { type: 'GitHub 查询',        impact: '低 — 只读操作' },
         checklist_write:         { type: '任务管理',           impact: '低 — 修改内部状态' },
         update_plan:             { type: '计划管理',           impact: '低 — 修改内部状态' },
+        git_status:              { type: 'Git 状态',           impact: '低 — 只读操作' },
+        git_diff:                { type: 'Git 差异',           impact: '低 — 只读操作' },
+        git_show:                { type: 'Git 查看',           impact: '低 — 只读操作' },
+        git_log:                 { type: 'Git 日志',           impact: '低 — 只读操作' },
+        git_blame:               { type: 'Git Blame',          impact: '低 — 只读操作' },
+        handle_read:             { type: '句柄读取',           impact: '低 — 只读操作' },
+        agent_open:              { type: '子代理创建',         impact: '高 — 创建子代理会话' },
+        agent_eval:              { type: '子代理评估',         impact: '高 — 操作子代理' },
+        agent_close:             { type: '子代理关闭',         impact: '中 — 关闭子代理' },
+        rlm_open:                { type: 'RLM 会话',           impact: '中 — RLM 操作' },
+        rlm_eval:                { type: 'RLM 评估',           impact: '中 — RLM 操作' },
+        rlm_close:               { type: 'RLM 关闭',           impact: '中 — RLM 操作' },
+        run_tests:               { type: '测试运行',           impact: '中 — 执行测试' },
+        run_verifiers:           { type: '验证器运行',         impact: '中 — 执行验证' },
+        task_create:             { type: '任务创建',           impact: '中 — 创建后台任务' },
+        note:                    { type: '记忆记录',           impact: '低 — 修改内部状态' },
     };
 
     constructor(
@@ -66,7 +85,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     try { input = JSON.parse(event.delta || '{}'); } catch { /* keep empty */ }
                     const callId = event.itemId || String(Date.now());
                     const toolName = event.toolName || event.kind || 'tool';
-                    this._toolCache.set(callId, { toolName: String(toolName), args: input });
+                    // 添加时检查容量，超限则清理最旧的
+                    if (this._toolCache.size >= ChatViewProvider.TOOL_CACHE_MAX) {
+                        this._evictToolCache();
+                    }
+                    this._toolCache.set(callId, { toolName: String(toolName), args: input, ts: Date.now() });
                     logger.info(`[ToolCache] stored id="${callId}" tool=${toolName} args=${JSON.stringify(input).slice(0, 200)}`);
                     const toolCall = { name: toolName, arguments: input, callId };
                     this.postMessage({ type: 'tuiToolCall', toolCall });
@@ -204,9 +227,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     async newSession(): Promise<void> {
         // Cancel any active turn
         await this.tuiManager.cancel();
-        // Reset current thread so next prompt creates a new one
-        (this.tuiManager as any)._currentThreadId = undefined;
-        (this.tuiManager as any)._lastEventSeq = 0;
+        // Reset thread state (increments generation to discard stale SSE events)
+        this.tuiManager.resetThread();
         // Reset auto-approve — 新会话应恢复审批弹窗
         this.tuiManager.autoApprove = false;
         // 通知前端信任已重置
@@ -253,9 +275,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             return;
         }
         logger.info(`[Session] resumed thread ${threadId}, loading history...`);
-        // 清空当前消息
+        // 清空当前消息并重置计数器
         this.postMessage({ type: 'clearChat' });
-        this.postMessage({ type: 'newSession' });
+        this.postMessage({ type: 'newSession' }); // 这会重置 turnCount 等前端状态
         // 加载历史消息
         const detail = await this.tuiManager.getThreadDetail(threadId);
         if (!detail) {
@@ -309,10 +331,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     for (const itemId of t.item_ids) {
                         const it = itemMap.get(itemId);
                         if (!it) continue;
-                        // 跳过被中断的 item 和非 agent_message 类型（如 reasoning）
+                        // 跳过被中断的 item
                         if (it.status === 'interrupted') continue;
+
                         if (it.kind === 'agent_message' && it.detail) {
                             history.push({ role: 'assistant', content: String(it.detail) });
+                        } else if (it.kind === 'agent_reasoning' && it.detail) {
+                            // 保留推理过程（作为系统提示格式，前端可识别）
+                            const reasoning = String(it.detail);
+                            if (reasoning.length > 0) {
+                                history.push({ role: 'assistant', content: `<thinking>\n${reasoning.slice(0, 2000)}${reasoning.length > 2000 ? '\n...' : ''}\n</thinking>` });
+                            }
+                        } else if (it.kind === 'tool_call' || it.kind === 'command_execution' || it.kind === 'file_change') {
+                            // 保留工具调用摘要
+                            const toolName = it.summary || it.kind;
+                            const detail = typeof it.detail === 'string' ? it.detail.slice(0, 500) : '';
+                            if (toolName || detail) {
+                                history.push({ role: 'assistant', content: `> 🔧 ${toolName}${detail ? '\n> ' + detail.slice(0, 200) : ''}` });
+                            }
                         }
                     }
                 }
@@ -331,6 +367,229 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (ws) this.postMessage({ type: 'workspaceStatus', status: ws });
         this.pushTasks();
         this._onSessionChange?.();
+    }
+
+    /** 从 TUI 的 ~/.codewhale/config.toml 读取所有 Provider 的 Key / BaseURL / Model */
+    private readTuiProviderConfig(): { providerApiKeys: Record<string, boolean>; providerBaseUrls: Record<string, string>; providerModels: Record<string, string> } {
+        // TUI config section → Celest provider id 映射（TUI 用下划线，Celest 用连字符）
+        const SECTION_TO_PID: Record<string, string> = {
+            deepseek: 'deepseek', openai: 'openai', nvidia_nim: 'nvidia-nim',
+            ollama: 'ollama', huggingface: 'huggingface', arcee: 'arcee',
+            moonshot: 'moonshot', sglang: 'sglang', vllm: 'vllm',
+            siliconflow: 'siliconflow', siliconflow_cn: 'siliconflow-CN',
+            fireworks: 'fireworks', xiaomi_mimo: 'xiaomi-mimo',
+            wanjie_ark: 'wanjie-ark', volcengine: 'volcengine',
+            openrouter: 'openrouter', novita: 'novita',
+            atlascloud: 'atlascloud', dashscope: 'dashscope',
+        };
+
+        const providerApiKeys: Record<string, boolean> = {};
+        const providerBaseUrls: Record<string, string> = {};
+        const providerModels: Record<string, string> = {};
+
+        try {
+            const tuiConfigPath = path.join(os.homedir(), '.codewhale', 'config.toml');
+            if (fs.existsSync(tuiConfigPath)) {
+                const raw = fs.readFileSync(tuiConfigPath, 'utf-8');
+                const sectionRe = /\[providers\.(\w[\w_]*)\]([\s\S]*?)(?=\[|$)/g;
+                let sectionMatch: RegExpExecArray | null;
+                while ((sectionMatch = sectionRe.exec(raw)) !== null) {
+                    const tuiSection = sectionMatch[1];
+                    const pid = SECTION_TO_PID[tuiSection];
+                    if (!pid) continue;
+                    const body = sectionMatch[2];
+
+                    const keyMatch = body.match(/api_key\s*=\s*"([^"]+)"/);
+                    if (keyMatch) {
+                        providerApiKeys[pid] = true;
+                        if (pid === 'deepseek') {
+                            this.tuiManager.setConfig({ apiKey: keyMatch[1] });
+                        }
+                    }
+
+                    const urlMatch = body.match(/base_url\s*=\s*"([^"]+)"/);
+                    if (urlMatch) providerBaseUrls[pid] = urlMatch[1];
+
+                    const modelMatch = body.match(/^model\s*=\s*"([^"]+)"/m);
+                    if (modelMatch) providerModels[pid] = modelMatch[1];
+                }
+                // 兼容顶层 api_key（旧格式）
+                const topKeyMatch = raw.match(/^api_key\s*=\s*"([^"]+)"/m);
+                if (topKeyMatch && !providerApiKeys['deepseek']) {
+                    providerApiKeys['deepseek'] = true;
+                    this.tuiManager.setConfig({ apiKey: topKeyMatch[1] });
+                }
+            }
+        } catch (e: any) {
+            logger.warn('[Config] failed to read TUI config.toml:', e.message);
+        }
+
+        return { providerApiKeys, providerBaseUrls, providerModels };
+    }
+
+    /** 将 Provider 设置同步写入 TUI 的 ~/.codewhale/config.toml，返回写入结果 */
+    private syncToTuiConfig(
+        providerKeys: Record<string, string>,
+        providerBaseUrls: Record<string, string>,
+        providerModels: Record<string, string>,
+    ): { synced: string[]; failed: string[]; error?: string } {
+        // Celest provider id → TUI config section 名（TUI 用下划线）
+        const PID_TO_SECTION: Record<string, string> = {
+            'deepseek': 'deepseek', 'openai': 'openai', 'nvidia-nim': 'nvidia_nim',
+            'ollama': 'ollama', 'huggingface': 'huggingface', 'arcee': 'arcee',
+            'moonshot': 'moonshot', 'sglang': 'sglang', 'vllm': 'vllm',
+            'siliconflow': 'siliconflow', 'siliconflow-CN': 'siliconflow_cn',
+            'fireworks': 'fireworks', 'xiaomi-mimo': 'xiaomi_mimo',
+            'wanjie-ark': 'wanjie_ark', 'volcengine': 'volcengine',
+            'openrouter': 'openrouter', 'novita': 'novita',
+            'atlascloud': 'atlascloud', 'dashscope': 'dashscope',
+        };
+
+        const tuiConfigPath = path.join(os.homedir(), '.codewhale', 'config.toml');
+        const synced: string[] = [];
+        const failed: string[] = [];
+
+        /** 在 raw 中查找 `[providers.xxx]` 节头位置（仅行首匹配） */
+        const findSectionStart = (raw: string, section: string): number => {
+            const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const re = new RegExp(`^\\[providers\\.${escaped}\\]\\s*$`, 'm');
+            const m = re.exec(raw);
+            return m ? m.index : -1;
+        };
+
+        /** 从 bodyStart 起找下一个行首 `[` 位置，作为节边界 */
+        const findNextSection = (raw: string, bodyStart: number): number => {
+            const slice = raw.slice(bodyStart);
+            const m = slice.match(/^\[/m);
+            return m ? bodyStart + (m.index ?? 0) : raw.length;
+        };
+
+        try {
+            let raw: string;
+            if (fs.existsSync(tuiConfigPath)) {
+                raw = fs.readFileSync(tuiConfigPath, 'utf-8');
+            } else {
+                raw = '';
+            }
+
+            const allPids = new Set([
+                ...Object.keys(providerKeys),
+                ...Object.keys(providerBaseUrls),
+                ...Object.keys(providerModels),
+            ]);
+
+            // 收集所有要写入的 provider section → 找出它们在 raw 中的位置
+            // 从后往前处理，避免位置偏移
+            interface SectionEdit {
+                pid: string;
+                section: string;
+                sectionIndex: number; // -1 表示需要新建
+                newBody: string;
+            }
+            const edits: SectionEdit[] = [];
+
+            for (const pid of allPids) {
+                const section = PID_TO_SECTION[pid];
+                if (!section) { failed.push(pid); continue; }
+
+                const sectionIndex = findSectionStart(raw, section);
+                let sectionBody: string;
+
+                if (sectionIndex >= 0) {
+                    const bodyStart = sectionIndex + `[providers.${section}]`.length;
+                    // 跳到行末换行符之后
+                    const afterHeader = raw.indexOf('\n', bodyStart);
+                    const contentStart = afterHeader >= 0 ? afterHeader + 1 : bodyStart;
+                    const bodyEnd = findNextSection(raw, contentStart);
+                    sectionBody = raw.slice(contentStart, bodyEnd);
+                } else {
+                    sectionBody = '\n';
+                }
+
+                // 更新字段
+                const key = providerKeys[pid];
+                const hasKey = pid in providerKeys && typeof key === 'string' && key.trim().length > 0;
+                if (hasKey) {
+                    if (/^\s*api_key\s*=/m.test(sectionBody)) {
+                        sectionBody = sectionBody.replace(/^(\s*)api_key\s*=.*$/m, `$1api_key = "${key.trim()}"`);
+                    } else {
+                        sectionBody = sectionBody.trimEnd() + `\napi_key = "${key.trim()}"\n`;
+                    }
+                }
+
+                const url = providerBaseUrls[pid];
+                if (url && typeof url === 'string' && url.trim()) {
+                    if (/^\s*base_url\s*=/m.test(sectionBody)) {
+                        sectionBody = sectionBody.replace(/^(\s*)base_url\s*=.*$/m, `$1base_url = "${url.trim()}"`);
+                    } else {
+                        sectionBody = sectionBody.trimEnd() + `\nbase_url = "${url.trim()}"\n`;
+                    }
+                }
+
+                const model = providerModels[pid];
+                if (model && typeof model === 'string' && model.trim()) {
+                    if (/^\s*model\s*=/m.test(sectionBody)) {
+                        sectionBody = sectionBody.replace(/^(\s*)model\s*=.*$/m, `$1model = "${model.trim()}"`);
+                    } else {
+                        sectionBody = sectionBody.trimEnd() + `\nmodel = "${model.trim()}"\n`;
+                    }
+                }
+
+                edits.push({ pid, section, sectionIndex, newBody: sectionBody });
+            }
+
+            // 从后往前应用编辑（后面的先改，前面的位置不受影响）
+            edits.sort((a, b) => b.sectionIndex - a.sectionIndex);
+            for (const ed of edits) {
+                if (ed.sectionIndex >= 0) {
+                    const bodyStart = ed.sectionIndex + `[providers.${ed.section}]`.length;
+                    const afterHeader = raw.indexOf('\n', bodyStart);
+                    const contentStart = afterHeader >= 0 ? afterHeader + 1 : bodyStart;
+                    const bodyEnd = findNextSection(raw, contentStart);
+                    raw = raw.slice(0, contentStart) + ed.newBody + raw.slice(bodyEnd);
+                } else {
+                    raw = raw.trimEnd() + '\n\n[providers.' + ed.section + ']' + ed.newBody;
+                }
+                synced.push(ed.pid);
+            }
+
+            // 写回文件
+            fs.writeFileSync(tuiConfigPath, raw, 'utf-8');
+
+            // 验证写入：重新读取，用行首正则确认
+            const verifyRaw = fs.readFileSync(tuiConfigPath, 'utf-8');
+            const toRemove: string[] = [];
+            for (const pid of synced) {
+                const section = PID_TO_SECTION[pid];
+                if (!section) continue;
+
+                const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const re = new RegExp(`^\\[providers\\.${escaped}\\][\\s\\S]*?(?=^\\[|$)`, 'm');
+                const vm = re.exec(verifyRaw);
+                if (!vm) { toRemove.push(pid); continue; }
+
+                const key = providerKeys[pid];
+                const hasKey = key && typeof key === 'string' && key.trim().length > 0;
+                if (hasKey) {
+                    if (!vm[0].includes(`api_key = "${key.trim()}"`)) {
+                        toRemove.push(pid);
+                    }
+                } else if (key !== undefined) {
+                    // 空标记 — 仅验证 section 存在即可
+                    if (!vm[0].includes('[providers.' + section + ']')) {
+                        toRemove.push(pid);
+                    }
+                }
+            }
+            for (const pid of toRemove) {
+                synced.splice(synced.indexOf(pid), 1);
+                failed.push(pid);
+            }
+        } catch (e: any) {
+            return { synced, failed, error: e.message };
+        }
+
+        return { synced, failed };
     }
 
     private async handleWebviewMessage(msg: any): Promise<void> {
@@ -375,11 +634,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 if (mySeq > 1) await this.tuiManager.cancel();
                 try {
                     await this.tuiManager.sendPrompt(enrichedPrompt);
-                    if (mySeq !== this._promptSeq) return;
-                    this.postMessage({ type: 'promptEnded' });
+                    // 检查是否被新请求抢占
+                    if (mySeq !== this._promptSeq) {
+                        logger.info(`[Prompt] seq=${mySeq} superseded by seq=${this._promptSeq}, skipping`);
+                        return;
+                    }
                 } catch (err: any) {
-                    if (mySeq !== this._promptSeq) return;
+                    if (mySeq !== this._promptSeq) {
+                        logger.info(`[Prompt] seq=${mySeq} error but superseded, skipping`);
+                        return;
+                    }
                     this.postMessage({ type: 'promptError', error: err.message });
+                } finally {
+                    // 确保 promptEnded 总是发送（防止 promptRunning 卡死）
+                    // 仅在仍是最新请求时发送（被抢占的新请求会负责自己的 promptEnded）
+                    if (mySeq === this._promptSeq) {
+                        this.postMessage({ type: 'promptEnded' });
+                    }
                 }
                 break;
             }
@@ -421,25 +692,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             // Phase 5: 设置相关消息
             case 'getSettings': {
                 const config = vscode.workspace.getConfiguration('celest');
-                const store = getSecretStore();
-                const hasKey = !!(await store.getApiKey());
                 const apiBase = config.get<string>('apiBase') || 'https://api.deepseek.com';
-                
-                // Phase 5: 读取 TUI runtime info
-                let tuiVersion = '';
-                const runtimeInfo = await this.tuiManager.getRuntimeInfo();
-                if (runtimeInfo) {
-                    tuiVersion = runtimeInfo.version;
+
+                // 直接从 TUI 配置读取（与 TUI 共享同一配置源）
+                const tuiConfig = this.readTuiProviderConfig();
+                const { providerApiKeys } = tuiConfig;
+                const providerBaseUrls = { ...tuiConfig.providerBaseUrls };
+                const providerModels = { ...tuiConfig.providerModels };
+
+                // 合并 Celest 自身的 VS Code 设置
+                for (const pid of Object.keys(providerApiKeys)) {
+                    const bu = config.get<string>(`providers.${pid}.baseUrl`);
+                    if (bu) providerBaseUrls[pid] = bu;
+                    const m = config.get<string>(`providers.${pid}.model`);
+                    if (m) providerModels[pid] = m;
                 }
                 
-                    // OCR 检测
-                    let ocrAvailable = false;
-                    try { cp.execSync('tesseract --version', { stdio: 'ignore' }); ocrAvailable = true; } catch { }
+                let tuiVersion = '';
+                const runtimeInfo = await this.tuiManager.getRuntimeInfo();
+                if (runtimeInfo) { tuiVersion = runtimeInfo.version; }
+                
+                let ocrAvailable = false;
+                try { cp.execSync('tesseract --version', { stdio: 'ignore' }); ocrAvailable = true; } catch { }
 
-                    this.postMessage({
-                        type: 'settingsData',
-                        ocrAvailable,
-                        config: {
+                this.postMessage({
+                    type: 'settingsData',
+                    ocrAvailable,
+                    config: {
                         apiBase,
                         defaultModel: config.get<string>('defaultModel') || 'deepseek-v4-flash',
                         autoDownloadBinary: config.get<boolean>('autoDownloadBinary') ?? true,
@@ -447,11 +726,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         locale: config.get<string>('locale') || 'zh-CN',
                         provider: config.get<string>('provider') || 'deepseek',
                         reasoningEffort: config.get<string>('reasoningEffort') || 'max',
+                        pathSuffix: config.get<string>('pathSuffix') || '',
+                        providerApiKeys,
+                        providerBaseUrls,
+                        providerModels,
                     },
-                    apiKeyStored: hasKey,
+                    apiKeyStored: !!providerApiKeys['deepseek'],
                     tuiVersion,
                     tuiConnected: this.tuiManager.connected,
-                    extVersion: '0.1.6',
+                    extVersion: this.context.extension.packageJSON?.version || '0.1.10',
                     nodeVersion: process.version,
                     vscodeVersion: vscode.version,
                 });
@@ -460,6 +743,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
             case 'saveSettings': {
                 const config = vscode.workspace.getConfiguration('celest');
+                const store = getSecretStore();
                 const data = msg.config;
                 if (!data) break;
                 
@@ -471,23 +755,90 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 if (data.locale !== undefined) await config.update('locale', data.locale, true);
                 if (data.provider !== undefined) {
                     await config.update('provider', data.provider, true);
-                    await getSecretStore().setProvider(data.provider);
+                    await store.setProvider(data.provider);
                 }
                 if (data.reasoningEffort !== undefined) await config.update('reasoningEffort', data.reasoningEffort, true);
-                
-                // 保存 API Key 到 SecretStorage
-                if (data.apiKey) {
-                    await getSecretStore().setApiKey(data.apiKey);
-                    // Phase 5: 更新 TUI 配置
-                    this.tuiManager.setConfig({ apiKey: data.apiKey, model: data.defaultModel, baseUrl: data.apiBase });
+                if (data.pathSuffix !== undefined) {
+                    await config.update('pathSuffix', data.pathSuffix, true);
+                    this.tuiManager.setConfig({ pathSuffix: data.pathSuffix });
                 }
                 
-                // Phase 5: 更新 TUI 模型配置
-                const newModel = data.defaultModel || config.get<string>('defaultModel') || 'deepseek-v4-flash';
-                this.tuiManager.setConfig({ model: newModel });
+                // 保存旧版 API Key（向后兼容）
+                if (data.apiKey) {
+                    await store.setApiKey(data.apiKey);
+                }
                 
-                this.postMessage({ type: 'settingsSaved' });
-                vscode.window.showInformationMessage('Celest: Settings saved');
+                // 保存多 Provider 凭证
+                if (data.providerKeys && typeof data.providerKeys === 'object') {
+                    for (const [pid, key] of Object.entries(data.providerKeys)) {
+                        if (key && typeof key === 'string' && key.trim()) {
+                            await store.setProviderApiKey(pid, key.trim());
+                        }
+                    }
+                    logger.info('[Config] saved provider API keys for', Object.keys(data.providerKeys).filter(k => data.providerKeys[k]).join(', '));
+                }
+                if (data.providerBaseUrls && typeof data.providerBaseUrls === 'object') {
+                    for (const [pid, url] of Object.entries(data.providerBaseUrls)) {
+                        if (url && typeof url === 'string' && url.trim()) {
+                            await config.update(`providers.${pid}.baseUrl`, url.trim(), true);
+                        }
+                    }
+                }
+                if (data.providerModels && typeof data.providerModels === 'object') {
+                    for (const [pid, model] of Object.entries(data.providerModels)) {
+                        if (model && typeof model === 'string' && model.trim()) {
+                            await config.update(`providers.${pid}.model`, model.trim(), true);
+                        }
+                    }
+                }
+                
+                // Phase 5: 更新 TUI 配置（deepseek 兼容）
+                this.tuiManager.setConfig({ model: data.defaultModel || 'deepseek-v4-flash' });
+
+                // 合并 TUI config.toml 已有配置，确保即使未重新输入也能正确报告状态
+                const existing = this.readTuiProviderConfig();
+                const mergedKeys: Record<string, string> = { ...data.providerKeys || {} };
+                const mergedUrls: Record<string, string> = { ...data.providerBaseUrls || {} };
+                const mergedModels: Record<string, string> = { ...data.providerModels || {} };
+                // 将 config.toml 中已有的 Provider 配置合并进去（不覆盖新输入的值）
+                for (const pid of Object.keys(existing.providerApiKeys)) {
+                    if (existing.providerApiKeys[pid] && !(pid in mergedKeys)) {
+                        // 标记为"已配置但不修改"（空字符串表示保留原值）
+                        mergedKeys[pid] = '';
+                    }
+                    if (existing.providerBaseUrls[pid] && !(pid in mergedUrls)) {
+                        mergedUrls[pid] = existing.providerBaseUrls[pid];
+                    }
+                    if (existing.providerModels[pid] && !(pid in mergedModels)) {
+                        mergedModels[pid] = existing.providerModels[pid];
+                    }
+                }
+
+                const syncResult = this.syncToTuiConfig(mergedKeys, mergedUrls, mergedModels);
+
+                this.postMessage({
+                    type: 'settingsSaved',
+                    syncResult: {
+                        synced: syncResult.synced,
+                        failed: syncResult.failed,
+                        error: syncResult.error,
+                        configPath: path.join(os.homedir(), '.codewhale', 'config.toml'),
+                    },
+                });
+
+                if (syncResult.error) {
+                    vscode.window.showErrorMessage(`Celest: Failed to sync config.toml — ${syncResult.error}`);
+                } else if (syncResult.failed.length > 0) {
+                    vscode.window.showWarningMessage(
+                        `Celest: Settings saved, but config.toml sync partially failed (${syncResult.failed.join(', ')}). Review ~/.codewhale/config.toml`
+                    );
+                } else if (syncResult.synced.length > 0) {
+                    vscode.window.showInformationMessage(
+                        `Celest: Settings saved ✓ — config.toml verified (${syncResult.synced.join(', ')}). Review ~/.codewhale/config.toml`
+                    );
+                } else {
+                    vscode.window.showInformationMessage('Celest: Settings saved');
+                }
                 break;
             }
 
@@ -546,7 +897,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
             case 'browseBinary': {
                 const result = await vscode.window.showOpenDialog({
-                    title: 'Select deepseek-tui binary',
+                    title: 'Select codewhale-tui binary',
                     filters: process.platform === 'win32' 
                         ? { 'Executables': ['exe'] } 
                         : { 'All files': ['*'] },
@@ -630,20 +981,48 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 }
                 break;
             case 'ready':
-                // Phase 5: 读取初始设置配置
+                // 直接从 TUI 的 config.toml 读取 Provider 状态（与 TUI 共享同一配置源）
                 {
                     const cfg = vscode.workspace.getConfiguration('celest');
                     const defaultModel = cfg.get<string>('defaultModel') || 'deepseek-v4-flash';
                     this.tuiManager.setConfig({ model: defaultModel });
-                    
-                    // 尝试从 SecretStore 获取 API Key
-                    try {
-                        const apiKey = await getSecretStore().getApiKey();
-                        if (apiKey) {
-                            this.tuiManager.setConfig({ apiKey });
-                            logger.info('[Config] loaded API key from SecretStore');
-                        }
-                    } catch { /* SecretStore may not be available yet */ }
+
+                    const tuiConfig = this.readTuiProviderConfig();
+                    const { providerApiKeys } = tuiConfig;
+                    const providerBaseUrls = { ...tuiConfig.providerBaseUrls };
+                    const providerModels = { ...tuiConfig.providerModels };
+
+                    // 合并 Celest 自身的 VS Code 设置
+                    for (const pid of Object.keys(providerApiKeys)) {
+                        const bu = cfg.get<string>(`providers.${pid}.baseUrl`);
+                        if (bu) providerBaseUrls[pid] = bu;
+                        const m = cfg.get<string>(`providers.${pid}.model`);
+                        if (m) providerModels[pid] = m;
+                    }
+                    logger.info(`[Config] ready — providers with keys: ${Object.keys(providerApiKeys).filter(k => providerApiKeys[k]).join(', ')}`);
+
+                    this.postMessage({
+                        type: 'settingsData',
+                        config: {
+                            apiBase: cfg.get<string>('apiBase') || 'https://api.deepseek.com',
+                            defaultModel,
+                            autoDownloadBinary: cfg.get<boolean>('autoDownloadBinary') ?? true,
+                            binaryPath: cfg.get<string>('binaryPath') || '',
+                            locale: cfg.get<string>('locale') || 'zh-CN',
+                            provider: cfg.get<string>('provider') || 'deepseek',
+                            reasoningEffort: cfg.get<string>('reasoningEffort') || 'max',
+                            pathSuffix: cfg.get<string>('pathSuffix') || '',
+                            providerApiKeys,
+                            providerBaseUrls,
+                            providerModels,
+                        },
+                        apiKeyStored: !!providerApiKeys['deepseek'],
+                        tuiVersion: '',
+                        tuiConnected: this.tuiManager.connected,
+                        extVersion: this.context.extension.packageJSON?.version || '0.1.10',
+                        nodeVersion: process.version,
+                        vscodeVersion: vscode.version,
+                    });
                     
                     this.postMessage({ type: 'tuiConnected', sessionId: 'http-sse' });
                 }
@@ -711,6 +1090,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     // ── 辅助方法 ──
+
+    /** 清理过期/超量的 toolCache 条目 */
+    private _evictToolCache(): void {
+        const now = Date.now();
+        const ttl = ChatViewProvider.TOOL_CACHE_TTL;
+        // 1. 清理过期条目
+        for (const [key, val] of this._toolCache) {
+            if (now - val.ts > ttl) {
+                this._toolCache.delete(key);
+            }
+        }
+        // 2. 如果仍然超限，删除最旧的（按 ts 排序）
+        if (this._toolCache.size >= ChatViewProvider.TOOL_CACHE_MAX) {
+            const entries = [...this._toolCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+            const toRemove = Math.floor(entries.length * 0.3); // 清理 30%
+            for (let i = 0; i < toRemove; i++) {
+                this._toolCache.delete(entries[i][0]);
+            }
+            logger.info(`[ToolCache] evicted ${toRemove} stale entries`);
+        }
+    }
 
     /** 斜杠命令分派 */
     private async dispatchSlashCommand(cmd: string, args: string): Promise<string | null> {
@@ -1032,8 +1432,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             return `${attr}="${webview.asWebviewUri(vscode.Uri.joinPath(guiDir, src))}"`;
         });
 
-        // CSP
-        const nonce = 'celest-' + Math.random().toString(36).slice(2);
+        // CSP — 使用 crypto 生成安全 nonce
+        const nonce = 'celest-' + require('crypto').randomBytes(16).toString('hex');
         html = html.replace('<head>', `<head>\n<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'unsafe-eval'; img-src ${webview.cspSource} data: https:; font-src ${webview.cspSource}; connect-src https: http:;">`);
         html = html.replace(/<script/g, `<script nonce="${nonce}"`);
 

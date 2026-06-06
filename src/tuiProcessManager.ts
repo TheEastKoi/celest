@@ -4,6 +4,7 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import { logger } from './logger';
+import { PROVIDER_ENV_MAP, type ProviderCredentials, getSecretStore } from './secretStorage';
 
 /** Phase 5: 会话配置 */
 export interface SessionConfig {
@@ -13,6 +14,7 @@ export interface SessionConfig {
     baseUrl?: string;
     apiKey?: string;
     reasoningEffort?: string;
+    pathSuffix?: string;
 }
 
 /** Phase 5: Runtime info 响应 */
@@ -224,6 +226,7 @@ export class TuiProcessManager {
     private _currentThreadId?: string;
     private _currentTurnId?: string;
     private _lastEventSeq: number = 0;
+    private _generation = 0; // 每次 resetThread 递增，用于丢弃旧 SSE 事件
 
     private _onEvent = new vscode.EventEmitter<RuntimeEvent>();
     readonly onEvent = this._onEvent.event;
@@ -242,8 +245,20 @@ export class TuiProcessManager {
 
     get port(): number { return this._port; }
     get connected(): boolean { return this._started && this.process?.exitCode === null; }
+    get generation(): number { return this._generation; }
     set autoApprove(v: boolean) { this._autoApprove = v; }
     get autoApprove(): boolean { return this._autoApprove; }
+
+    /** 重置 thread 状态（用于新建会话）— 递增 generation 以丢弃旧事件 */
+    resetThread(): void {
+        this._currentThreadId = undefined;
+        this._lastEventSeq = 0;
+        this._currentTurnId = undefined;
+        this._currentAbort?.abort();
+        this._currentAbort = undefined;
+        this._generation++;
+        logger.info(`[Thread] resetThread — generation=${this._generation}`);
+    }
 
     /** Phase 5: 设置会话配置 */
     setConfig(config: Partial<SessionConfig>): void {
@@ -259,7 +274,31 @@ export class TuiProcessManager {
     async start(): Promise<void> {
         this._disposed = false;
         this._retryCount = 0;
-        await this.startInternal();
+        await this.startWithPortRetry();
+    }
+
+    /** 带端口重试的启动（处理 TOCTOU 竞态） */
+    private async startWithPortRetry(): Promise<void> {
+        const MAX_PORT_RETRIES = 3;
+        for (let attempt = 0; attempt < MAX_PORT_RETRIES; attempt++) {
+            try {
+                await this.startInternal();
+                return; // 成功
+            } catch (err: any) {
+                // 检测端口冲突特征（stderr 中 EADDRINUSE 或 health check 超时但进程在运行）
+                const isPortConflict = err.message?.includes('EADDRINUSE') ||
+                    err.message?.includes('address already in use') ||
+                    (err.message?.includes('did not start within') && this.process?.exitCode !== null && this.process?.exitCode !== 0);
+                if (isPortConflict && attempt < MAX_PORT_RETRIES - 1) {
+                    logger.warn(`[Start] port conflict detected, retrying (${attempt + 1}/${MAX_PORT_RETRIES})...`);
+                    this.process?.kill();
+                    this.process = undefined;
+                    await new Promise(r => setTimeout(r, 500));
+                    continue;
+                }
+                throw err;
+            }
+        }
     }
 
     /** 发送 prompt，通过 Threads API 获取完整事件流 */
@@ -270,6 +309,7 @@ export class TuiProcessManager {
         this._currentAbort = controller;
         this._currentTurnId = undefined;
         const base = `http://127.0.0.1:${this._port}/v1`;
+        const myGeneration = this._generation; // 捕获当前 generation
 
         try {
             // Phase 5: 使用配置中的 model
@@ -323,7 +363,7 @@ export class TuiProcessManager {
                 signal: controller.signal,
             }).then(r => r.json() as any);
 
-            const eventsPromise = this.streamEvents(threadId, controller.signal);
+            const eventsPromise = this.streamEvents(threadId, controller.signal, myGeneration);
             const [turn] = await Promise.all([turnPromise, eventsPromise]);
             this._currentTurnId = turn?.id;
             logger.info(`[Thread] turn: ${turn?.id} status=${turn?.status}`);
@@ -902,10 +942,10 @@ export class TuiProcessManager {
 
     // ── 内部实现 ────────────────────────────────────────────
 
-    private async streamEvents(threadId: string, signal: AbortSignal): Promise<void> {
+    private async streamEvents(threadId: string, signal: AbortSignal, generation: number): Promise<void> {
         const sinceSeq = this._lastEventSeq > 0 ? this._lastEventSeq + 1 : 0;
         const url = `http://127.0.0.1:${this._port}/v1/threads/${threadId}/events?since_seq=${sinceSeq}`;
-        logger.info(`[SSE] connecting to ${url} (since_seq=${sinceSeq})`);
+        logger.info(`[SSE] connecting to ${url} (since_seq=${sinceSeq}, gen=${generation})`);
 
         const resp = await fetch(url, { signal });
         if (!resp.ok) throw new Error(`SSE connect failed: HTTP ${resp.status}`);
@@ -920,6 +960,13 @@ export class TuiProcessManager {
             while (!signal.aborted) {
                 const { done, value } = await reader.read();
                 if (done) break;
+
+                // 检查 generation 是否已变（说明会话已重置）
+                if (generation !== this._generation) {
+                    logger.info(`[SSE] generation mismatch (${generation} vs ${this._generation}), discarding stale events`);
+                    break;
+                }
+
                 buffer += decoder.decode(value, { stream: true });
 
                 const lines = buffer.split('\n');
@@ -931,7 +978,7 @@ export class TuiProcessManager {
                     } else if (line.startsWith('data: ')) {
                         const data = line.slice(6);
                         if (currentEvent) {
-                            this.dispatchRawEvent(currentEvent, data);
+                            this.dispatchRawEvent(currentEvent, data, generation);
                         }
                         currentEvent = '';
                     }
@@ -942,7 +989,13 @@ export class TuiProcessManager {
         }
     }
 
-    private dispatchRawEvent(eventName: string, data: string): void {
+    private dispatchRawEvent(eventName: string, data: string, generation: number): void {
+        // 如果 generation 不匹配，丢弃此事件（属于旧会话）
+        if (generation !== this._generation) {
+            logger.info(`[SSE] discarding stale event ${eventName} (gen=${generation} vs current=${this._generation})`);
+            return;
+        }
+
         let payload: any = {};
         try { payload = JSON.parse(data); } catch { return; }
 
@@ -1096,14 +1149,50 @@ export class TuiProcessManager {
         this._port = await findAvailablePort(8787);
         logger.info(`Starting codewhale-tui serve on port ${this._port}:`, binPath);
 
-        // Phase 5: 传递 API Key 环境变量
+        // Phase 5+: 传递多 Provider 环境变量
         const env: Record<string, string> = { ...process.env as Record<string, string> };
-        if (this._config.apiKey) {
-            env.DEEPSEEK_API_KEY = this._config.apiKey;
-            logger.info('[Config] passing DEEPSEEK_API_KEY via env');
+
+        // 从 SecretStorage 读取所有已配置 Provider 的 API Key
+        let providerCredentials: Record<string, ProviderCredentials> = {};
+        try {
+            const store = getSecretStore();
+            providerCredentials = await store.getAllProviderCredentials();
+        } catch (err: any) {
+            logger.warn('[Config] failed to load provider credentials:', err.message);
         }
-        if (this._config.baseUrl) {
-            env.DEEPSEEK_BASE_URL = this._config.baseUrl;
+
+        // 注入所有 Provider 的环境变量（API Key + Base URL + Model）
+        let injectedCount = 0;
+        for (const [providerId, mapping] of Object.entries(PROVIDER_ENV_MAP)) {
+            const creds = providerCredentials[providerId] || {};
+            const config = vscode.workspace.getConfiguration('celest');
+
+            // API Key: 优先 SecretStorage，其次 session config（deepseek 兼容）
+            const apiKey = creds.apiKey || (providerId === 'deepseek' ? this._config.apiKey : undefined);
+            if (apiKey && mapping.apiKeyEnv) {
+                env[mapping.apiKeyEnv] = apiKey;
+                injectedCount++;
+            }
+
+            // Base URL: 优先 VS Code 配置，其次 PROVIDER_ENV_MAP 默认值，最后 session config
+            const configBaseUrl = config.get<string>(`providers.${providerId}.baseUrl`);
+            const baseUrl = configBaseUrl || mapping.defaultBaseUrl || (providerId === 'deepseek' ? this._config.baseUrl : undefined);
+            if (baseUrl && mapping.baseUrlEnv) {
+                env[mapping.baseUrlEnv] = baseUrl;
+            }
+
+            // Model: 优先 VS Code 配置，其次 PROVIDER_ENV_MAP 默认值
+            const configModel = config.get<string>(`providers.${providerId}.model`);
+            const model = configModel || mapping.defaultModel;
+            if (model && mapping.modelEnv) {
+                env[mapping.modelEnv] = model;
+            }
+        }
+        logger.info(`[Config] injected env vars for ${injectedCount} provider(s)`);
+
+        // 兼容旧版 session config（pathSuffix 等）
+        if (this._config.pathSuffix) {
+            env.CODEWHALE_PATH_SUFFIX = this._config.pathSuffix;
         }
 
         this.process = cp.spawn(binPath, [
@@ -1191,13 +1280,9 @@ export class TuiProcessManager {
     }
 
     private findBinaryFallback(): string | null {
+        // 依赖系统 PATH 或 VS Code 配置，不硬编码开发者路径
         if (process.platform !== 'win32') return 'codewhale-tui';
-        const candidates = [
-            path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'release', 'codewhale-tui.exe'),
-            path.join('E:', 'git_code', 'DeepSeek-TUI-new', 'target', 'debug', 'codewhale-tui.exe'),
-        ];
-        for (const c of candidates) if (fs.existsSync(c)) return c;
-        return null;
+        return 'codewhale-tui.exe'; // 依赖 PATH 环境变量
     }
 }
 

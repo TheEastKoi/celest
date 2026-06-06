@@ -22,6 +22,11 @@
   </a>
 </p>
 
+<blockquote>
+<p><strong>🚧 本项目已暂停更新 (v0.1.11 最终版本)。</strong><br>
+感谢所有用户的试用与反馈。代码仓库保持开放，欢迎 Fork 和二次开发。</p>
+</blockquote>
+
 ---
 
 ## 为什么选择 Celest？
