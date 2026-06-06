@@ -26,6 +26,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Publish to VS Code Marketplace
+        continue-on-error: true
         run: npx @vscode/vsce publish -p ${{ secrets.VSCE_PAT }}
       - name: Publish to Open VSX
         run: npx ovsx publish -p ${{ secrets.OVSX_PAT }}
