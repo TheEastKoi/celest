@@ -56,7 +56,7 @@
                         <span class="panel-label">🔍 {{ t('panel.context') }}</span>
                     </div>
                     <div v-show="panelContextOpen" class="panel-body">
-                        <ContextPanel :usage="contextUsage" :workspace="contextWorkspace" :mcpCount="mcpCount" />
+                        <ContextPanel :usage="contextUsage" :workspace="contextWorkspace" :mcpCount="mcpCount" :usagePercent="contextUsagePercent" />
                     </div>
                 </div>
                 <!-- 统计用量 Usage -->
@@ -73,7 +73,7 @@
         <main v-if="!tuiReady" class="chat-area"><ChatView ref="chatRef" @viewDiff="handleViewDiff" @stopTool="handleStopTool" /></main>
         <footer class="input-area">
             <div v-if="!tuiReady" class="connecting-banner">{{ connectingText }}</div>
-            <InputBox ref="inputBoxRef" @send="handleSend" @stop="handleStop" @pasteFiles="handlePasteFiles" @pasteImage="handlePasteImage" :disabled="!tuiReady" :showStop="promptRunning" :promptRunning="promptRunning" :files="fileList" :workspaceRoot="workspaceRoot" />
+            <InputBox ref="inputBoxRef" @send="handleSend" @stop="handleStop" @pasteFiles="handlePasteFiles" @pasteImage="handlePasteImage" :disabled="!tuiReady" :showStop="promptRunning" :promptRunning="promptRunning" :files="fileList" :workspaceRoot="workspaceRoot" :mode="currentMode" />
         </footer>
         <ContextBar :modelId="currentModel" :availableModels="availableModels" :providerApiKeys="providerApiKeys" :mode="currentMode" :turnCount="turnCount" :sessionId="sessionId" :gitBranch="gitBranch" :gitDirty="gitDirty" @cycleMode="cycleMode" @switchModel="handleModelSwitch" @openSettings="openSettings" />
 
@@ -152,9 +152,12 @@ const
     agentsList = ref<any[]>([]),
     contextUsage = ref<any>(null),
     contextWorkspace = ref<any>(null),
+    contextUsagePercent = ref<number | undefined>(undefined),
     mcpCount = ref<number | null>(null),
     usageLoading = ref(false),
     panelUsageOpen = ref(false),
+    goalState = ref<any>(null),      // Phase 3: goal.* SSE events
+    workflowState = ref<any>(null),  // Phase 3: workflow.* SSE events
     gitBranch = ref(''),
     gitDirty = ref(false),
     workspaceRoot = ref(''),
@@ -205,7 +208,26 @@ const incompleteTodoCount = computed(() => todos.value.filter((t: any) => t.stat
 
 function openSettings() { showSettings.value = true; vscode?.postMessage({ type: 'getSettings' }); }
 function handleModelSwitch(id: string) { currentModel.value = id; vscode?.postMessage({ type: 'switchModel', model: id }); }
-function cycleMode() { const modes = ['agent','plan','yolo']; const i = modes.indexOf(currentMode.value); currentMode.value = modes[(i+1)%modes.length]; vscode?.postMessage({ type: 'switchMode', mode: currentMode.value }); }
+let _modePending = false;
+let _modeTimer: ReturnType<typeof setTimeout> | undefined;
+function cycleMode() {
+    if (_modePending) return; // 防止快速点击
+    const modes = ['agent','plan','yolo'];
+    const i = modes.indexOf(currentMode.value);
+    const next = modes[(i+1)%modes.length];
+    const old = currentMode.value;
+    _modePending = true;
+    // 乐观更新 UI
+    currentMode.value = next;
+    vscode?.postMessage({ type: 'switchMode', mode: next });
+    // 3秒超时 → 回滚
+    _modeTimer = setTimeout(() => {
+        if (_modePending) {
+            currentMode.value = old;
+            _modePending = false;
+        }
+    }, 3000);
+}
 function handleSettingsSave(config: any) {
     vscode?.postMessage({ type: 'saveSettings', config });
     showSettings.value = false;
@@ -233,8 +255,9 @@ function handleSkillToggle(name: string, enabled: boolean) { vscode?.postMessage
 function fetchSkills() { skillsLoading.value = true; vscode?.postMessage({ type: 'getSkills' }); }
 function handleUsageRefresh(groupBy: string) { usageLoading.value = true; vscode?.postMessage({ type: 'getUsage', group_by: groupBy }); }
 function handleSend(text: string) {
-    // 预处理 @路径：如果路径中有空格且没用方括号，自动加 @[path]
-    text = text.replace(/@([^\s\[]\S*(?:\s+\S+)+)/g, (_m, p) => `@[${p}]`);
+    // Bug 2 修复: 仅对含扩展名或路径分隔符的文本自动包装 @[path]
+    // 带空格的长路径请用 @[path with spaces] 手动格式
+    text = text.replace(/@([^\s\[]\S*(?:\.\w{1,8}|[\\/])\S*)/g, (_m, p) => `@[${p}]`);
     // 拦截本地 UI 命令
     const t = text.trim();
     if (t === '/clear') { handleClearChat(); return; }
@@ -435,7 +458,7 @@ onMounted(async () => {
             break;
         case 'pasteImageResult': inputBoxRef.value?.replaceText('@[' + (msg.fileName || '') + '] ', '@' + (msg.filePath || '') + ' '); break;
         case 'clearChat': chatRef.value?.clearMessages(); break;
-        case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; agentsList.value = []; contextUsage.value = null; contextWorkspace.value = null; trustActive.value = false; break;
+        case 'newSession': turnCount.value = 0; todos.value = []; plan.value = { steps: [] }; taskList.value = []; agentsList.value = []; contextUsage.value = null; contextWorkspace.value = null; contextUsagePercent.value = undefined; goalState.value = null; workflowState.value = null; trustActive.value = false; break;
         case 'loadHistory': {
             const history = msg.history;
             if (Array.isArray(history)) {
@@ -541,12 +564,25 @@ onMounted(async () => {
             vscode?.postMessage({ type: 'getSettings' });
             break;
         case 'modelSwitched': currentModel.value = msg.model || currentModel.value; break;
-        case 'modeSwitched': currentMode.value = msg.mode || currentMode.value; break;
+        case 'modeSwitched':
+            _modePending = false;
+            if (_modeTimer) { clearTimeout(_modeTimer); _modeTimer = undefined; }
+            currentMode.value = msg.mode || currentMode.value;
+            break;
+        case 'modeSwitchFailed':
+            // Bug 6: 后端拒绝切换 → 回滚到旧 mode
+            _modePending = false;
+            if (_modeTimer) { clearTimeout(_modeTimer); _modeTimer = undefined; }
+            if (msg.oldMode) currentMode.value = msg.oldMode;
+            break;
         case 'updateCheckResult': break; // 后端已弹窗通知
         case 'downloadProgress': break;
         case 'downloadComplete': break; // 后端已弹窗通知
         case 'downloadFailed': break;  // 后端已弹窗通知
         case 'localeChanged': setLocale(msg.locale as 'zh-CN' | 'en'); connectingText.value = t('connecting'); break;
+        case 'contextUsage': contextUsagePercent.value = msg.usagePercent as number | undefined; break;
+        case 'goalEvent': goalState.value = { event: msg.event, goalId: msg.goalId, title: msg.title }; break;
+        case 'workflowEvent': workflowState.value = { event: msg.event, workflowId: msg.workflowId, step: msg.step }; break;
     }});
     vscode?.postMessage({ type: 'ready' }); vscode?.postMessage({ type: 'getFiles' });
 });

@@ -13,7 +13,7 @@ export const PROVIDER_ENV_MAP: Record<string, { apiKeyEnv: string; baseUrlEnv: s
     ollama:        { apiKeyEnv: '',                        baseUrlEnv: 'OLLAMA_BASE_URL',         modelEnv: 'OLLAMA_MODEL',         defaultBaseUrl: 'http://localhost:11434/v1',               defaultModel: 'deepseek-v4-flash' },
     huggingface:   { apiKeyEnv: 'HUGGINGFACE_API_KEY',     baseUrlEnv: 'HUGGINGFACE_BASE_URL',    modelEnv: 'HUGGINGFACE_MODEL',    defaultBaseUrl: 'https://api-inference.huggingface.co/v1', defaultModel: 'deepseek-ai/DeepSeek-V4-Pro' },
     arcee:         { apiKeyEnv: 'ARCEE_API_KEY',           baseUrlEnv: 'ARCEE_BASE_URL',          modelEnv: 'ARCEE_MODEL',          defaultBaseUrl: 'https://api.arcee.ai/api/v1',             defaultModel: 'trinity-large-thinking' },
-    moonshot:      { apiKeyEnv: 'MOONSHOT_API_KEY',        baseUrlEnv: 'MOONSHOT_BASE_URL',       modelEnv: 'MOONSHOT_MODEL',       defaultBaseUrl: 'https://api.moonshot.ai/v1',              defaultModel: 'kimi-k2.6' },
+    moonshot:      { apiKeyEnv: 'MOONSHOT_API_KEY',        baseUrlEnv: 'MOONSHOT_BASE_URL',       modelEnv: 'MOONSHOT_MODEL',       defaultBaseUrl: 'https://api.moonshot.ai/v1',              defaultModel: 'kimi-k2.7-code' },
     sglang:        { apiKeyEnv: 'SGLANG_API_KEY',          baseUrlEnv: 'SGLANG_BASE_URL',         modelEnv: 'SGLANG_MODEL',         defaultBaseUrl: 'http://localhost:30000/v1',               defaultModel: 'deepseek-ai/DeepSeek-V4-Pro' },
     vllm:          { apiKeyEnv: 'VLLM_API_KEY',            baseUrlEnv: 'VLLM_BASE_URL',           modelEnv: 'VLLM_MODEL',           defaultBaseUrl: 'http://localhost:8000/v1',                defaultModel: 'deepseek-ai/DeepSeek-V4-Pro' },
     siliconflow:   { apiKeyEnv: 'SILICONFLOW_API_KEY',     baseUrlEnv: 'SILICONFLOW_BASE_URL',    modelEnv: 'SILICONFLOW_MODEL',    defaultBaseUrl: 'https://api.siliconflow.com/v1',          defaultModel: 'deepseek-ai/DeepSeek-V4-Pro' },
@@ -26,6 +26,10 @@ export const PROVIDER_ENV_MAP: Record<string, { apiKeyEnv: string; baseUrlEnv: s
     novita:        { apiKeyEnv: 'NOVITA_API_KEY',          baseUrlEnv: 'NOVITA_BASE_URL',         modelEnv: 'NOVITA_MODEL',         defaultBaseUrl: 'https://api.novita.ai/v1',                defaultModel: 'deepseek/deepseek-v4-pro' },
     atlascloud:    { apiKeyEnv: 'ATLASCLOUD_API_KEY',      baseUrlEnv: 'ATLASCLOUD_BASE_URL',     modelEnv: 'ATLASCLOUD_MODEL',     defaultBaseUrl: 'https://api.atlascloud.ai/v1',            defaultModel: 'deepseek-ai/deepseek-v4-flash' },
     dashscope:     { apiKeyEnv: 'DASHSCOPE_API_KEY',       baseUrlEnv: 'DASHSCOPE_BASE_URL',      modelEnv: 'DASHSCOPE_MODEL',      defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen3-235b-a22b' },
+    // Phase 2: 新增 Provider（对齐 CodeWhale v0.8.56+）
+    anthropic:     { apiKeyEnv: 'ANTHROPIC_API_KEY',        baseUrlEnv: 'ANTHROPIC_BASE_URL',      modelEnv: 'ANTHROPIC_MODEL',      defaultBaseUrl: 'https://api.anthropic.com/v1',             defaultModel: 'claude-sonnet-4-6' },
+    'openai-codex': { apiKeyEnv: 'OPENAI_CODEX_ACCESS_TOKEN', baseUrlEnv: 'CODEX_BASE_URL',        modelEnv: 'CODEX_MODEL',          defaultBaseUrl: 'https://api.openai.com/v1',                defaultModel: 'gpt-5.5' },
+    minimax:       { apiKeyEnv: 'MINIMAX_API_KEY',          baseUrlEnv: 'MINIMAX_BASE_URL',        modelEnv: 'MINIMAX_MODEL',         defaultBaseUrl: 'https://api.minimax.chat/v1',              defaultModel: 'minimax-2.7' },
 };
 
 /** 所有支持的 Provider ID 列表 */

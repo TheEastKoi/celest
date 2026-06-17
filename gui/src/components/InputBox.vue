@@ -23,7 +23,7 @@
             ref="inputRef"
             v-model="inputText"
             class="prompt-input"
-            placeholder="Ask anything... (@ to reference files, / for commands)"
+            :placeholder="placeholderText"
             rows="3"
             :disabled="disabled"
             @keydown="handleKeydown"
@@ -52,7 +52,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue';
+import { ref, nextTick, computed } from 'vue';
 import AtMentionPopup from './AtMentionPopup.vue';
 import SlashCommandPopup from './SlashCommandPopup.vue';
 import type { FileItem } from './AtMentionPopup.vue';
@@ -64,6 +64,7 @@ const props = defineProps<{
     promptRunning?: boolean;
     files: FileItem[];
     workspaceRoot?: string;
+    mode?: string; // Bug 4: 当前模式，用于 Placeholder 提示
 }>();
 
 const emit = defineEmits<{
@@ -74,6 +75,16 @@ const emit = defineEmits<{
 }>();
 
 const inputText = ref('');
+// Bug 4: mode 感知 placeholder
+const placeholderText = computed(() => {
+    const mode = props.mode || 'agent';
+    const modeHint: Record<string, string> = {
+        agent: 'Agent',
+        plan: 'Plan（只读，无 shell）',
+        yolo: 'YOLO（自动批准）',
+    };
+    return `[${modeHint[mode] || 'Agent'}] @ 引用文件, / 命令, Enter 发送`;
+});
 const inputRef = ref<HTMLTextAreaElement>();
 const inputBoxRef = ref<HTMLElement>();
 const atPopupRef = ref<InstanceType<typeof AtMentionPopup>>();
@@ -98,6 +109,9 @@ function isPopupActive(): boolean {
 function closeAtPopup() { showAtPopup.value = false; atFilterText.value = ''; atTriggerPos = -1; }
 function closeSlashPopup() { showSlashPopup.value = false; slashFilterText.value = ''; slashTriggerPos = -1; }
 function closeAllPopups() { closeAtPopup(); closeSlashPopup(); }
+
+// Bug 2: @ 弹窗 debounce 定时器
+let _atDebounce: ReturnType<typeof setTimeout> | undefined;
 
 // ── @ 选择 → 替换文本 ──────────────────────────────────────────
 
@@ -183,12 +197,18 @@ function handleInput() {
     const cursor = el.selectionStart;
     const before = inputText.value.slice(0, cursor);
 
-    // 检测 @ 提及
-    const atMatch = before.match(/@(\S*)$/);
-    if (atMatch && !showSlashPopup.value) {
-        atTriggerPos = cursor - atMatch[0].length;
-        atFilterText.value = atMatch[1];
-        showAtPopup.value = true;
+    // 检测 @ 提及 — Bug 2: 只在 @ 后有至少 1 个非空字符时触发（避免仅 @ 就弹窗）
+    const atMatch = before.match(/@(\S+)$/);
+    if (atMatch && !showSlashPopup.value && !before.includes('@[')) {
+        // Bug 2: debounce 300ms 后弹出，避免快速输入时闪烁
+        if (_atDebounce) clearTimeout(_atDebounce);
+        const filter = atMatch[1];
+        const pos = cursor - atMatch[0].length;
+        _atDebounce = setTimeout(() => {
+            atTriggerPos = pos;
+            atFilterText.value = filter;
+            showAtPopup.value = true;
+        }, 300);
         return;
     }
     // 检测 / 命令（仅在行首或空格后）
@@ -202,6 +222,7 @@ function handleInput() {
 
     // 不匹配则关闭弹窗
     closeAllPopups();
+    if (_atDebounce) { clearTimeout(_atDebounce); _atDebounce = undefined; }
 }
 
 /** 粘贴处理：从剪贴板提取文件路径自动加 @ */
@@ -209,8 +230,13 @@ function handlePaste(e: ClipboardEvent) {
     const cd = e.clipboardData;
     if (!cd) return;
 
+    // Bug 2: 用户有选区时不自动格式化（只插入原始文本）
+    const el = inputRef.value;
+    const hasSelection = el ? el.selectionStart !== el.selectionEnd : false;
+
     // 0. 文件对象粘贴：图片走 blob，非图片尝试提取路径
     if (cd.files && cd.files.length > 0) {
+        if (hasSelection) return; // 有选区时不拦截
         const hasImage = cd.types.some((t: string) => t.startsWith('image/'));
         if (!hasImage) {
             e.preventDefault();

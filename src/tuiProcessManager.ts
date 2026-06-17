@@ -248,6 +248,10 @@ export class TuiProcessManager {
     get generation(): number { return this._generation; }
     set autoApprove(v: boolean) { this._autoApprove = v; }
     get autoApprove(): boolean { return this._autoApprove; }
+    /** 公开 getter：当前活跃 thread ID（取代各处的 as any 访问） */
+    get currentThreadId(): string | undefined { return this._currentThreadId; }
+    /** 公开 getter：当前活跃 turn ID（取代各处的 as any 访问） */
+    get currentTurnId(): string | undefined { return this._currentTurnId; }
 
     /** 重置 thread 状态（用于新建会话）— 递增 generation 以丢弃旧事件 */
     resetThread(): void {
@@ -881,14 +885,151 @@ export class TuiProcessManager {
 
     // ── Phase 6.3: Fork ──
 
-    /** Fork 线程 (POST /v1/threads/{id}/fork) */
-    async forkThread(id: string): Promise<ThreadSummary | null> {
+    /** Fork 线程（支持可选 model/mode，关联 Bug 11） */
+    async forkThread(id: string, options?: { model?: string; mode?: string }): Promise<ThreadSummary | null> {
         if (!this._started) return null;
         try {
-            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/${encodeURIComponent(id)}/fork`, { method: 'POST' });
+            const body: Record<string, string> = {};
+            if (options?.model) body.model = options.model;
+            if (options?.mode) body.mode = options.mode;
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/${encodeURIComponent(id)}/fork`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
+            });
             if (!resp.ok) { logger.warn(`[Thread] fork HTTP ${resp.status}`); return null; }
             return await resp.json() as ThreadSummary;
         } catch (err: any) { logger.warn(`[Thread] fork failed: ${err.message}`); return null; }
+    }
+
+    // ── Batch 1: 新增 API ──
+
+    /** 撤销上一轮对话 (POST /v1/threads/{id}/undo) */
+    async undoThread(threadId: string): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/${encodeURIComponent(threadId)}/undo`, { method: 'POST' });
+            if (resp.ok) { logger.info(`[Thread] undo OK for ${threadId}`); return true; }
+            logger.warn(`[Thread] undo HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Thread] undo failed: ${err.message}`); return false; }
+    }
+
+    /** 恢复快照 (POST /v1/snapshots/{id}/restore) */
+    async restoreSnapshot(snapshotId: string): Promise<Record<string, unknown> | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/snapshots/${encodeURIComponent(snapshotId)}/restore`, { method: 'POST' });
+            if (!resp.ok) { logger.warn(`[Snapshot] restore HTTP ${resp.status}`); return null; }
+            return await resp.json() as Record<string, unknown>;
+        } catch (err: any) { logger.warn(`[Snapshot] restore failed: ${err.message}`); return null; }
+    }
+
+    /** 设置目标 (POST /v1/threads/goal/set) */
+    async setGoal(goal: string, options?: { title?: string }): Promise<Record<string, unknown> | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/goal/set`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ goal, ...options }),
+            });
+            if (!resp.ok) { logger.warn(`[Goal] set HTTP ${resp.status}`); return null; }
+            return await resp.json() as Record<string, unknown>;
+        } catch (err: any) { logger.warn(`[Goal] set failed: ${err.message}`); return null; }
+    }
+
+    /** 获取当前目标 (GET /v1/threads/goal) */
+    async getGoal(): Promise<Record<string, unknown> | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/goal`);
+            if (!resp.ok) { logger.warn(`[Goal] get HTTP ${resp.status}`); return null; }
+            return await resp.json() as Record<string, unknown>;
+        } catch (err: any) { logger.warn(`[Goal] get failed: ${err.message}`); return null; }
+    }
+
+    /** 清除目标 (POST /v1/threads/goal/clear) */
+    async clearGoal(): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/threads/goal/clear`, { method: 'POST' });
+            if (resp.ok) { logger.info('[Goal] cleared'); return true; }
+            logger.warn(`[Goal] clear HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Goal] clear failed: ${err.message}`); return false; }
+    }
+
+    /** 获取模型列表 (GET /v1/models) */
+    async listModels(): Promise<Record<string, unknown>[] | null> {
+        if (!this._started) return null;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/models`);
+            if (!resp.ok) { logger.warn(`[Models] HTTP ${resp.status}`); return null; }
+            const data = await resp.json() as any;
+            return Array.isArray(data?.models) ? data.models : (Array.isArray(data) ? data : null);
+        } catch (err: any) { logger.warn(`[Models] fetch failed: ${err.message}`); return null; }
+    }
+
+    /** 列出子 Agent (GET /v1/subagents) */
+    async listSubagents(): Promise<Record<string, unknown>[]> {
+        if (!this._started) return [];
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/subagents`);
+            if (!resp.ok) { logger.warn(`[Subagents] HTTP ${resp.status}`); return []; }
+            const data = await resp.json() as any;
+            return Array.isArray(data?.subagents) ? data.subagents : (Array.isArray(data) ? data : []);
+        } catch (err: any) { logger.warn(`[Subagents] fetch failed: ${err.message}`); return []; }
+    }
+
+    /** 取消子 Agent (POST /v1/subagents/{id}/cancel) */
+    async cancelSubagent(id: string): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/subagents/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+            if (resp.ok) { logger.info(`[Subagents] cancelled ${id}`); return true; }
+            logger.warn(`[Subagents] cancel HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Subagents] cancel failed: ${err.message}`); return false; }
+    }
+
+    /** 列出后台 Job (GET /v1/jobs) */
+    async listJobs(): Promise<Record<string, unknown>[]> {
+        if (!this._started) return [];
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/jobs`);
+            if (!resp.ok) { logger.warn(`[Jobs] HTTP ${resp.status}`); return []; }
+            const data = await resp.json() as any;
+            return Array.isArray(data?.jobs) ? data.jobs : (Array.isArray(data) ? data : []);
+        } catch (err: any) { logger.warn(`[Jobs] fetch failed: ${err.message}`); return []; }
+    }
+
+    /** 取消所有 Job (POST /v1/jobs/cancel-all) */
+    async cancelAllJobs(): Promise<boolean> {
+        if (!this._started) return false;
+        try {
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/jobs/cancel-all`, { method: 'POST' });
+            if (resp.ok) { logger.info('[Jobs] cancelled all'); return true; }
+            logger.warn(`[Jobs] cancel-all HTTP ${resp.status}`);
+            return false;
+        } catch (err: any) { logger.warn(`[Jobs] cancel-all failed: ${err.message}`); return false; }
+    }
+
+    /** 语音转录 (POST /v1/voice) */
+    async voiceTranscribe(audioPath?: string): Promise<string | null> {
+        if (!this._started) return null;
+        try {
+            const body: Record<string, string> = {};
+            if (audioPath) body.audio_path = audioPath;
+            const resp = await fetch(`http://127.0.0.1:${this._port}/v1/voice`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!resp.ok) { logger.warn(`[Voice] transcribe HTTP ${resp.status}`); return null; }
+            const data = await resp.json() as any;
+            return data.text || data.transcript || null;
+        } catch (err: any) { logger.warn(`[Voice] transcribe failed: ${err.message}`); return null; }
     }
 
     // ── Phase 6.3: MCP ──
@@ -942,50 +1083,92 @@ export class TuiProcessManager {
 
     // ── 内部实现 ────────────────────────────────────────────
 
+    /** Phase 3: SSE 事件流（支持断线自动重连） */
     private async streamEvents(threadId: string, signal: AbortSignal, generation: number): Promise<void> {
-        const sinceSeq = this._lastEventSeq > 0 ? this._lastEventSeq + 1 : 0;
-        const url = `http://127.0.0.1:${this._port}/v1/threads/${threadId}/events?since_seq=${sinceSeq}`;
-        logger.info(`[SSE] connecting to ${url} (since_seq=${sinceSeq}, gen=${generation})`);
+        const MAX_RECONNECT = 5;
+        const INITIAL_BACKOFF = 1000; // 1s
+        let reconnectCount = 0;
+        let backoff = INITIAL_BACKOFF;
 
-        const resp = await fetch(url, { signal });
-        if (!resp.ok) throw new Error(`SSE connect failed: HTTP ${resp.status}`);
-        if (!resp.body) throw new Error('SSE no body');
-
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let currentEvent = '';
-
-        try {
-            while (!signal.aborted) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                // 检查 generation 是否已变（说明会话已重置）
-                if (generation !== this._generation) {
-                    logger.info(`[SSE] generation mismatch (${generation} vs ${this._generation}), discarding stale events`);
-                    break;
-                }
-
-                buffer += decoder.decode(value, { stream: true });
-
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (line.startsWith('event: ')) {
-                        currentEvent = line.slice(7).trim();
-                    } else if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        if (currentEvent) {
-                            this.dispatchRawEvent(currentEvent, data, generation);
-                        }
-                        currentEvent = '';
-                    }
-                }
+        while (reconnectCount <= MAX_RECONNECT) {
+            // 检查是否需要中止（generation 变更或用户取消）
+            if (signal.aborted || generation !== this._generation) {
+                logger.info(`[SSE] aborted before connect (gen=${generation} vs current=${this._generation})`);
+                return;
             }
-        } finally {
-            reader.releaseLock();
+
+            const sinceSeq = this._lastEventSeq > 0 ? this._lastEventSeq + 1 : 0;
+            const url = `http://127.0.0.1:${this._port}/v1/threads/${threadId}/events?since_seq=${sinceSeq}`;
+
+            try {
+                const resp = await fetch(url, { signal });
+                if (!resp.ok) throw new Error(`SSE connect failed: HTTP ${resp.status}`);
+                if (!resp.body) throw new Error('SSE no body');
+
+                if (reconnectCount > 0) {
+                    logger.info(`[SSE] reconnected (attempt ${reconnectCount}, since_seq=${sinceSeq})`);
+                    this._onStatusChange.fire({ status: 'connected' });
+                }
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let currentEvent = '';
+                // 重置重连计数（成功连接）
+                reconnectCount = 0;
+                backoff = INITIAL_BACKOFF;
+
+                try {
+                    while (!signal.aborted) {
+                        const { done, value } = await reader.read();
+                        if (done) {
+                            // SSE 流正常结束（如 turn 完成）
+                            return;
+                        }
+
+                        if (generation !== this._generation) {
+                            logger.info(`[SSE] generation mismatch, discarding`);
+                            return;
+                        }
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+
+                        for (const line of lines) {
+                            if (line.startsWith('event: ')) {
+                                currentEvent = line.slice(7).trim();
+                            } else if (line.startsWith('data: ')) {
+                                const data = line.slice(6);
+                                if (currentEvent) {
+                                    this.dispatchRawEvent(currentEvent, data, generation);
+                                }
+                                currentEvent = '';
+                            }
+                        }
+                    }
+                    return; // signal aborted
+                } finally {
+                    reader.releaseLock();
+                }
+            } catch (err: any) {
+                if (signal.aborted || generation !== this._generation) {
+                    return; // 用户取消或世代变更 → 正常退出
+                }
+                if (err.name === 'AbortError') return;
+
+                reconnectCount++;
+                if (reconnectCount > MAX_RECONNECT) {
+                    logger.error(`[SSE] max reconnect attempts (${MAX_RECONNECT}) reached`);
+                    this._onStatusChange.fire({ status: 'disconnected' });
+                    throw err;
+                }
+
+                logger.warn(`[SSE] disconnected, retrying ${reconnectCount}/${MAX_RECONNECT} in ${backoff}ms...`);
+                this._onStatusChange.fire({ status: 'reconnecting' });
+                await new Promise(r => setTimeout(r, backoff));
+                backoff = Math.min(backoff * 2, 30000); // 最大 30s
+            }
         }
     }
 
@@ -1129,6 +1312,27 @@ export class TuiProcessManager {
                 this._onEvent.fire({ event: 'turnCompleted' });
                 break;
             }
+            // Phase 3: goal.* 事件
+            case 'goal.created':
+            case 'goal.updated':
+            case 'goal.completed':
+            case 'goal.blocked': {
+                const goalId = p.id || payload.goal_id || '';
+                const goalTitle = p.title || payload.title || p.goal || '';
+                this._onEvent.fire({ event: eventName.replace('.', ''), itemId: goalId, delta: goalTitle });
+                break;
+            }
+            // Phase 3: workflow.* 事件
+            case 'workflow.started':
+            case 'workflow.step_started':
+            case 'workflow.step_completed':
+            case 'workflow.completed':
+            case 'workflow.failed': {
+                const wfId = p.id || payload.workflow_id || '';
+                const wfStep = p.step || p.name || '';
+                this._onEvent.fire({ event: eventName.replace('.', ''), itemId: wfId, delta: wfStep });
+                break;
+            }
             default:
                 break;
         }
@@ -1195,12 +1399,26 @@ export class TuiProcessManager {
             env.CODEWHALE_PATH_SUFFIX = this._config.pathSuffix;
         }
 
-        this.process = cp.spawn(binPath, [
+        // Phase 3: 启动参数扩展（allowed-tools, disallowed-tools, max-turns 等）
+        const args = [
             'serve', '--http',
             '--port', String(this._port),
             '--host', '127.0.0.1',
             '--insecure',
-        ], {
+        ];
+        const allowedTools = config.get<string>('allowedTools');
+        if (allowedTools) {
+            args.push('--allowed-tools', allowedTools);
+        }
+        const disallowedTools = config.get<string>('disallowedTools');
+        if (disallowedTools) {
+            args.push('--disallowed-tools', disallowedTools);
+        }
+        const maxTurns = config.get<number>('maxTurns');
+        if (maxTurns && maxTurns > 0) {
+            args.push('--max-turns', String(maxTurns));
+        }
+        this.process = cp.spawn(binPath, args, {
             stdio: ['ignore', 'pipe', 'pipe'],
             cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd(),
             env,

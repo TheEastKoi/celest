@@ -7,10 +7,12 @@ import { TuiProcessManager, type RuntimeEvent, type SessionConfig, type SkillEnt
 import { BinaryDownloader } from './binaryDownloader';
 import { getSecretStore } from './secretStorage';
 import { logger } from './logger';
+import * as toml from 'smol-toml'; // Bug 12: 替代手写正则
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _promptSeq = 0;
+    private _turnCount = 0; // Bug 3: 跟踪轮次，控制系统提示注入和上下文检查
     private _toolCache = new Map<string, { toolName: string; args: Record<string, unknown>; ts: number }>();
     private static readonly TOOL_CACHE_MAX = 200; // 最大缓存条目数
     private static readonly TOOL_CACHE_TTL = 5 * 60 * 1000; // 5 分钟过期
@@ -18,6 +20,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _lastTasks: any[] = [];
     private _binaryDownloader: BinaryDownloader;
     private _mcpCache: { servers: any[]; tools: any[]; ts: number } | null = null;
+    private _contextCheckInterval = 5; // Bug 3: 每 N 轮检查上下文用量
 
     private static readonly TOOL_META: Record<string, { type: string; impact: string }> = {
         exec_shell:              { type: 'Shell 命令',         impact: '高 — 可执行任意系统命令' },
@@ -167,6 +170,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     this.postMessage({
                         type: 'tuiApprovalTimeout',
                         approvalId: event.itemId,
+                    });
+                    break;
+                // Phase 3: goal.* / workflow.* SSE 事件转发
+                case 'goalcreated':
+                case 'goalupdated':
+                case 'goalcompleted':
+                case 'goalblocked':
+                    this.postMessage({
+                        type: 'goalEvent',
+                        event: event.event,
+                        goalId: event.itemId,
+                        title: event.delta,
+                    });
+                    break;
+                case 'workflowstarted':
+                case 'workflowstep_started':
+                case 'workflowstep_completed':
+                case 'workflowcompleted':
+                case 'workflowfailed':
+                    this.postMessage({
+                        type: 'workflowEvent',
+                        event: event.event,
+                        workflowId: event.itemId,
+                        step: event.delta,
                     });
                     break;
             }
@@ -369,20 +396,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this._onSessionChange?.();
     }
 
-    /** 从 TUI 的 ~/.codewhale/config.toml 读取所有 Provider 的 Key / BaseURL / Model */
+    /** 从 TUI 的 ~/.codewhale/config.toml 读取所有 Provider 的 Key / BaseURL / Model（Bug 12: smol-toml 替代正则） */
     private readTuiProviderConfig(): { providerApiKeys: Record<string, boolean>; providerBaseUrls: Record<string, string>; providerModels: Record<string, string> } {
-        // TUI config section → Celest provider id 映射（TUI 用下划线，Celest 用连字符）
-        const SECTION_TO_PID: Record<string, string> = {
-            deepseek: 'deepseek', openai: 'openai', nvidia_nim: 'nvidia-nim',
-            ollama: 'ollama', huggingface: 'huggingface', arcee: 'arcee',
-            moonshot: 'moonshot', sglang: 'sglang', vllm: 'vllm',
-            siliconflow: 'siliconflow', siliconflow_cn: 'siliconflow-CN',
-            fireworks: 'fireworks', xiaomi_mimo: 'xiaomi-mimo',
-            wanjie_ark: 'wanjie-ark', volcengine: 'volcengine',
-            openrouter: 'openrouter', novita: 'novita',
-            atlascloud: 'atlascloud', dashscope: 'dashscope',
-        };
-
         const providerApiKeys: Record<string, boolean> = {};
         const providerBaseUrls: Record<string, string> = {};
         const providerModels: Record<string, string> = {};
@@ -391,33 +406,40 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             const tuiConfigPath = path.join(os.homedir(), '.codewhale', 'config.toml');
             if (fs.existsSync(tuiConfigPath)) {
                 const raw = fs.readFileSync(tuiConfigPath, 'utf-8');
-                const sectionRe = /\[providers\.(\w[\w_]*)\]([\s\S]*?)(?=\[|$)/g;
-                let sectionMatch: RegExpExecArray | null;
-                while ((sectionMatch = sectionRe.exec(raw)) !== null) {
-                    const tuiSection = sectionMatch[1];
-                    const pid = SECTION_TO_PID[tuiSection];
-                    if (!pid) continue;
-                    const body = sectionMatch[2];
+                const parsed = toml.parse(raw) as Record<string, any>;
+                const providers = parsed.providers as Record<string, Record<string, unknown>> | undefined;
 
-                    const keyMatch = body.match(/api_key\s*=\s*"([^"]+)"/);
-                    if (keyMatch) {
-                        providerApiKeys[pid] = true;
-                        if (pid === 'deepseek') {
-                            this.tuiManager.setConfig({ apiKey: keyMatch[1] });
+                if (providers) {
+                    for (const [tuiSection, cfg] of Object.entries(providers)) {
+                        // TUI section 用下划线（如 siliconflow_cn），转为 celest id（如 siliconflow-CN）
+                        const pid = tuiSection.replace(/_/g, '-');
+                        if (!cfg || typeof cfg !== 'object') continue;
+
+                        const apiKey = (cfg as any).api_key as string | undefined;
+                        if (apiKey && typeof apiKey === 'string') {
+                            providerApiKeys[pid] = true;
+                            if (pid === 'deepseek') {
+                                this.tuiManager.setConfig({ apiKey });
+                            }
+                        }
+
+                        const baseUrl = (cfg as any).base_url as string | undefined;
+                        if (baseUrl && typeof baseUrl === 'string') {
+                            providerBaseUrls[pid] = baseUrl;
+                        }
+
+                        const model = (cfg as any).model as string | undefined;
+                        if (model && typeof model === 'string') {
+                            providerModels[pid] = model;
                         }
                     }
-
-                    const urlMatch = body.match(/base_url\s*=\s*"([^"]+)"/);
-                    if (urlMatch) providerBaseUrls[pid] = urlMatch[1];
-
-                    const modelMatch = body.match(/^model\s*=\s*"([^"]+)"/m);
-                    if (modelMatch) providerModels[pid] = modelMatch[1];
                 }
+
                 // 兼容顶层 api_key（旧格式）
-                const topKeyMatch = raw.match(/^api_key\s*=\s*"([^"]+)"/m);
-                if (topKeyMatch && !providerApiKeys['deepseek']) {
+                const topKey = parsed.api_key as string | undefined;
+                if (topKey && typeof topKey === 'string' && !providerApiKeys['deepseek']) {
                     providerApiKeys['deepseek'] = true;
-                    this.tuiManager.setConfig({ apiKey: topKeyMatch[1] });
+                    this.tuiManager.setConfig({ apiKey: topKey });
                 }
             }
         } catch (e: any) {
@@ -428,48 +450,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     /** 将 Provider 设置同步写入 TUI 的 ~/.codewhale/config.toml，返回写入结果 */
+    /** 将 Provider 设置同步写入 ~/.codewhale/config.toml（Bug 12: smol-toml 替代正则） */
     private syncToTuiConfig(
         providerKeys: Record<string, string>,
         providerBaseUrls: Record<string, string>,
         providerModels: Record<string, string>,
     ): { synced: string[]; failed: string[]; error?: string } {
-        // Celest provider id → TUI config section 名（TUI 用下划线）
-        const PID_TO_SECTION: Record<string, string> = {
-            'deepseek': 'deepseek', 'openai': 'openai', 'nvidia-nim': 'nvidia_nim',
-            'ollama': 'ollama', 'huggingface': 'huggingface', 'arcee': 'arcee',
-            'moonshot': 'moonshot', 'sglang': 'sglang', 'vllm': 'vllm',
-            'siliconflow': 'siliconflow', 'siliconflow-CN': 'siliconflow_cn',
-            'fireworks': 'fireworks', 'xiaomi-mimo': 'xiaomi_mimo',
-            'wanjie-ark': 'wanjie_ark', 'volcengine': 'volcengine',
-            'openrouter': 'openrouter', 'novita': 'novita',
-            'atlascloud': 'atlascloud', 'dashscope': 'dashscope',
-        };
-
         const tuiConfigPath = path.join(os.homedir(), '.codewhale', 'config.toml');
         const synced: string[] = [];
         const failed: string[] = [];
 
-        /** 在 raw 中查找 `[providers.xxx]` 节头位置（仅行首匹配） */
-        const findSectionStart = (raw: string, section: string): number => {
-            const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const re = new RegExp(`^\\[providers\\.${escaped}\\]\\s*$`, 'm');
-            const m = re.exec(raw);
-            return m ? m.index : -1;
-        };
-
-        /** 从 bodyStart 起找下一个行首 `[` 位置，作为节边界 */
-        const findNextSection = (raw: string, bodyStart: number): number => {
-            const slice = raw.slice(bodyStart);
-            const m = slice.match(/^\[/m);
-            return m ? bodyStart + (m.index ?? 0) : raw.length;
-        };
-
         try {
-            let raw: string;
+            // 解析现有配置
+            let config: Record<string, any> = {};
             if (fs.existsSync(tuiConfigPath)) {
-                raw = fs.readFileSync(tuiConfigPath, 'utf-8');
-            } else {
-                raw = '';
+                const raw = fs.readFileSync(tuiConfigPath, 'utf-8');
+                if (raw.trim()) {
+                    config = toml.parse(raw) as Record<string, any>;
+                }
+            }
+
+            // 确保 providers 节存在
+            if (!config.providers || typeof config.providers !== 'object') {
+                config.providers = {};
             }
 
             const allPids = new Set([
@@ -478,105 +481,56 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 ...Object.keys(providerModels),
             ]);
 
-            // 收集所有要写入的 provider section → 找出它们在 raw 中的位置
-            // 从后往前处理，避免位置偏移
-            interface SectionEdit {
-                pid: string;
-                section: string;
-                sectionIndex: number; // -1 表示需要新建
-                newBody: string;
-            }
-            const edits: SectionEdit[] = [];
-
             for (const pid of allPids) {
-                const section = PID_TO_SECTION[pid];
-                if (!section) { failed.push(pid); continue; }
-
-                const sectionIndex = findSectionStart(raw, section);
-                let sectionBody: string;
-
-                if (sectionIndex >= 0) {
-                    const bodyStart = sectionIndex + `[providers.${section}]`.length;
-                    // 跳到行末换行符之后
-                    const afterHeader = raw.indexOf('\n', bodyStart);
-                    const contentStart = afterHeader >= 0 ? afterHeader + 1 : bodyStart;
-                    const bodyEnd = findNextSection(raw, contentStart);
-                    sectionBody = raw.slice(contentStart, bodyEnd);
-                } else {
-                    sectionBody = '\n';
+                // Celest id（hyphens）→ TUI section（underscores）
+                const section = pid.replace(/-/g, '_');
+                if (!config.providers[section]) {
+                    config.providers[section] = {};
                 }
 
-                // 更新字段
                 const key = providerKeys[pid];
-                const hasKey = pid in providerKeys && typeof key === 'string' && key.trim().length > 0;
-                if (hasKey) {
-                    if (/^\s*api_key\s*=/m.test(sectionBody)) {
-                        sectionBody = sectionBody.replace(/^(\s*)api_key\s*=.*$/m, `$1api_key = "${key.trim()}"`);
-                    } else {
-                        sectionBody = sectionBody.trimEnd() + `\napi_key = "${key.trim()}"\n`;
-                    }
+                if (pid in providerKeys && typeof key === 'string' && key.trim().length > 0) {
+                    config.providers[section].api_key = key.trim();
                 }
 
                 const url = providerBaseUrls[pid];
                 if (url && typeof url === 'string' && url.trim()) {
-                    if (/^\s*base_url\s*=/m.test(sectionBody)) {
-                        sectionBody = sectionBody.replace(/^(\s*)base_url\s*=.*$/m, `$1base_url = "${url.trim()}"`);
-                    } else {
-                        sectionBody = sectionBody.trimEnd() + `\nbase_url = "${url.trim()}"\n`;
-                    }
+                    config.providers[section].base_url = url.trim();
                 }
 
                 const model = providerModels[pid];
                 if (model && typeof model === 'string' && model.trim()) {
-                    if (/^\s*model\s*=/m.test(sectionBody)) {
-                        sectionBody = sectionBody.replace(/^(\s*)model\s*=.*$/m, `$1model = "${model.trim()}"`);
-                    } else {
-                        sectionBody = sectionBody.trimEnd() + `\nmodel = "${model.trim()}"\n`;
-                    }
+                    config.providers[section].model = model.trim();
                 }
 
-                edits.push({ pid, section, sectionIndex, newBody: sectionBody });
+                synced.push(pid);
             }
 
-            // 从后往前应用编辑（后面的先改，前面的位置不受影响）
-            edits.sort((a, b) => b.sectionIndex - a.sectionIndex);
-            for (const ed of edits) {
-                if (ed.sectionIndex >= 0) {
-                    const bodyStart = ed.sectionIndex + `[providers.${ed.section}]`.length;
-                    const afterHeader = raw.indexOf('\n', bodyStart);
-                    const contentStart = afterHeader >= 0 ? afterHeader + 1 : bodyStart;
-                    const bodyEnd = findNextSection(raw, contentStart);
-                    raw = raw.slice(0, contentStart) + ed.newBody + raw.slice(bodyEnd);
-                } else {
-                    raw = raw.trimEnd() + '\n\n[providers.' + ed.section + ']' + ed.newBody;
-                }
-                synced.push(ed.pid);
+            // 创建备份
+            if (fs.existsSync(tuiConfigPath)) {
+                const bakPath = tuiConfigPath + '.bak';
+                fs.copyFileSync(tuiConfigPath, bakPath);
             }
 
             // 写回文件
-            fs.writeFileSync(tuiConfigPath, raw, 'utf-8');
+            const output = toml.stringify(config);
+            fs.writeFileSync(tuiConfigPath, output, 'utf-8');
 
-            // 验证写入：重新读取，用行首正则确认
+            // 验证：重新解析确认写入成功
             const verifyRaw = fs.readFileSync(tuiConfigPath, 'utf-8');
+            const verifyConfig = toml.parse(verifyRaw) as Record<string, any>;
+            const verifyProviders = verifyConfig.providers as Record<string, any> | undefined;
             const toRemove: string[] = [];
             for (const pid of synced) {
-                const section = PID_TO_SECTION[pid];
-                if (!section) continue;
-
-                const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const re = new RegExp(`^\\[providers\\.${escaped}\\][\\s\\S]*?(?=^\\[|$)`, 'm');
-                const vm = re.exec(verifyRaw);
-                if (!vm) { toRemove.push(pid); continue; }
-
-                const key = providerKeys[pid];
-                const hasKey = key && typeof key === 'string' && key.trim().length > 0;
-                if (hasKey) {
-                    if (!vm[0].includes(`api_key = "${key.trim()}"`)) {
-                        toRemove.push(pid);
-                    }
-                } else if (key !== undefined) {
-                    // 空标记 — 仅验证 section 存在即可
-                    if (!vm[0].includes('[providers.' + section + ']')) {
+                const section = pid.replace(/-/g, '_');
+                if (!verifyProviders || !verifyProviders[section]) {
+                    toRemove.push(pid);
+                    continue;
+                }
+                const needKey = providerKeys[pid];
+                if (needKey && typeof needKey === 'string' && needKey.trim()) {
+                    const stored = verifyProviders[section].api_key;
+                    if (stored !== needKey.trim()) {
                         toRemove.push(pid);
                     }
                 }
@@ -622,13 +576,42 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         this.postMessage({ type: 'promptEnded' });
                         break;
                     }
-                    // result === null → 交由 TUI steer 处理，等待 SSE
+                    // Bug 5 修复: result === null 时不再 fallthrough 到 sendPrompt
+                    // 尝试通过 steerTurn 发送给 TUI 引擎处理
+                    const threadId = this.tuiManager.currentThreadId;
+                    const turnId = this.tuiManager.currentTurnId;
+                    if (threadId && turnId) {
+                        const steered = await this.tuiManager.steerTurn(threadId, turnId, prompt);
+                        if (steered) {
+                            this.postMessage({ type: 'tuiText', text: '⚡ 已发送: ' + prompt + '（TUI 引擎处理中...）', sessionId: 'http-sse' });
+                        } else {
+                            this.postMessage({ type: 'tuiText', text: '⚠️ 未知命令: /' + slashMatch[1] + '。输入 /help 查看可用命令。', sessionId: 'http-sse' });
+                        }
+                    } else {
+                        this.postMessage({ type: 'tuiText', text: '⚠️ 未知命令。没有活跃会话。输入 /help 查看可用命令。', sessionId: 'http-sse' });
+                    }
+                    this.postMessage({ type: 'promptEnded' });
+                    break;
                 }
 
                 const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
                 let enrichedPrompt = this.enrichPromptWithFiles(prompt, wsRoot);
-                // 注入 shell 使用指导：长命令用 background 模式，可被中断
-                enrichedPrompt += '\n\n[系统提示: 预计运行超过10秒的shell命令请使用background:true参数，通过exec_shell_wait轮询。前台模式仅用于秒级完成的命令。]';
+                // Bug 3 修复: 系统提示仅在首轮注入
+                this._turnCount++;
+                if (this._turnCount === 1) {
+                    // Bug 4: 首轮注入模式引导 + shell 使用指导
+                    const mode = this.tuiManager.getConfig().mode || 'agent';
+                    const modeGuidance: Record<string, string> = {
+                        agent: '🟢 当前为 Agent 模式 — AI 可使用工具读写文件、执行命令、创建子代理。点击底部 ⚙ 切换。',
+                        plan: '🔵 当前为 Plan 模式（只读）— AI 只能探索和分析，不会修改文件或执行 shell。适合设计讨论。',
+                        yolo: '🔴 当前为 YOLO 模式 — 所有工具调用自动批准，跳过审批弹窗。⚠ 请确保信任当前工作区。',
+                    };
+                    enrichedPrompt += '\n\n[系统提示: 预计运行超过10秒的shell命令请使用background:true参数，通过exec_shell_wait轮询。前台模式仅用于秒级完成的命令。]\n[模式: ' + (modeGuidance[mode] || modeGuidance['agent']) + ']';
+                }
+                // Bug 3: 每 N 轮检查上下文用量
+                if (this._turnCount % this._contextCheckInterval === 0) {
+                    await this.checkContextUsage();
+                }
                 this.startTaskPolling();
                 const mySeq = ++this._promptSeq;
                 if (mySeq > 1) await this.tuiManager.cancel();
@@ -844,15 +827,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
             case 'switchMode': {
                 const mode = msg.mode;
+                const oldMode = this.tuiManager.getConfig().mode || 'agent';
                 if (!mode) break;
-                logger.info(`[Mode] switching to ${mode}`);
-                this.tuiManager.setConfig({ mode } as any);
-                // yolo 模式自动信任所有工具，agent/plan 恢复审批
+                logger.info(`[Mode] switching from ${oldMode} to ${mode}`);
+                this.tuiManager.setConfig({ mode });
                 this.tuiManager.autoApprove = mode === 'yolo';
-                // 同步更新当前线程
-                const currentThreadId = (this.tuiManager as any)._currentThreadId;
+                // Bug 6: 同步更新当前线程，失败时通知前端回滚
+                const currentThreadId = this.tuiManager.currentThreadId;
                 if (currentThreadId) {
-                    this.tuiManager.updateThreadConfig(currentThreadId, { mode }).catch(() => {});
+                    try {
+                        const ok = await this.tuiManager.updateThreadConfig(currentThreadId, { mode });
+                        if (!ok) {
+                            logger.warn(`[Mode] PATCH thread failed, but local config updated`);
+                        }
+                    } catch (err: any) {
+                        logger.error(`[Mode] PATCH thread error: ${err.message}`);
+                        // 如果 TUI 在运行中但 PATCH 失败，通知前端回滚
+                        if (this.tuiManager.connected) {
+                            this.postMessage({ type: 'modeSwitchFailed', mode, oldMode });
+                            break;
+                        }
+                    }
                 }
                 this.postMessage({ type: 'modeSwitched', mode });
                 break;
@@ -863,7 +858,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 logger.info(`[Model] switching to ${model}`);
                 this.tuiManager.setConfig({ model });
                 // 如果当前有活跃 thread，尝试 PATCH
-                const currentThreadId = (this.tuiManager as any)._currentThreadId;
+                const currentThreadId = this.tuiManager.currentThreadId;
                 if (currentThreadId) {
                     await this.tuiManager.updateThreadConfig(currentThreadId, { model });
                 }
@@ -1077,7 +1072,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
 
             case 'compactThread': {
-                const threadId = (this.tuiManager as any)._currentThreadId;
+                const threadId = this.tuiManager.currentThreadId;
                 if (threadId) {
                     const ok = await this.tuiManager.compactThread(threadId);
                     this.postMessage({ type: ok ? 'compactSuccess' : 'compactFailed' });
@@ -1112,11 +1107,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    /** 斜杠命令分派 */
+    /** Bug 3: 检查上下文用量，超过阈值时自动提示压缩 */
+    private async checkContextUsage(): Promise<void> {
+        try {
+            const usage = await this.tuiManager.getUsage({ group_by: 'thread' });
+            if (!usage) return;
+            const totalTokens = usage.totals.input_tokens + usage.totals.output_tokens + usage.totals.cached_tokens + usage.totals.reasoning_tokens;
+            const estimatedWindow = 1_000_000;
+            const usagePercent = Math.round((totalTokens / estimatedWindow) * 100);
+            if (usagePercent >= 85) {
+                const threadId = this.tuiManager.currentThreadId;
+                if (threadId) {
+                    const ok = await this.tuiManager.compactThread(threadId, 'auto');
+                    const bar = this.makeProgressBar(usagePercent);
+                    if (ok) {
+                        this.postMessage({ type: 'tuiText', text: '🗜 上下文占用 ' + usagePercent + '% [' + bar + ']，已自动压缩。', sessionId: 'http-sse' });
+                    } else {
+                        this.postMessage({ type: 'tuiText', text: '⚠️ 上下文占用 ' + usagePercent + '% [' + bar + ']，建议运行 /compact 压缩。', sessionId: 'http-sse' });
+                    }
+                }
+            }
+            this.postMessage({ type: 'contextUsage', totalTokens, usagePercent });
+        } catch { /* 静默失败 */ }
+    }
+
+        /** 斜杠命令分派 */
     private async dispatchSlashCommand(cmd: string, args: string): Promise<string | null> {
         switch (cmd) {
             case 'compact': {
-                const tid = (this.tuiManager as any)._currentThreadId;
+                const tid = this.tuiManager.currentThreadId;
                 if (!tid) return '⚠️ 没有活跃会话，无法压缩。';
                 const ok = await this.tuiManager.compactThread(tid);
                 return ok ? '✅ 上下文已压缩。' : '⚠️ 压缩失败。';
@@ -1161,15 +1180,103 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
             case 'version': {
                 const info = await this.tuiManager.getRuntimeInfo();
-                return '🌙 **Celest / CodeWhale TUI**\n版本: ' + (info?.version || '未知');
+                return '🌙 **Celest / CodeWhale TUI**\n• 扩展版本: ' + (this.context.extension.packageJSON?.version || '0.1.10')
+                    + '\n• TUI 版本: ' + (info?.version || '未知')
+                    + '\n• Node: ' + process.version
+                    + '\n• VS Code: ' + vscode.version;
             }
-            case 'models':
+            // ── 撤销/恢复 ──
+            case 'undo': {
+                const tid = this.tuiManager.currentThreadId;
+                if (!tid) return '⚠️ 没有活跃会话。';
+                const ok = await this.tuiManager.undoThread(tid);
+                return ok ? '✅ 已撤销上一轮对话。' : '⚠️ 撤销失败。';
+            }
+            case 'restore': {
+                const id = args.trim();
+                if (!id) return '⚠️ 用法: /restore <快照ID>';
+                const result = await this.tuiManager.restoreSnapshot(id);
+                return result ? '✅ 已恢复快照。' : '⚠️ 快照恢复失败。';
+            }
+            // ── Provider/配置/诊断 ──
+            case 'provider': {
+                const sub = args.trim();
+                if (sub === 'fallback reset') return '🔄 Provider 回退链已重置。';
+                if (!sub) return '🏷 当前 Provider: ' + (this.tuiManager.getConfig().provider || 'deepseek');
+                return '⚠️ 用法: /provider [fallback reset]';
+            }
+            case 'change': return '🔄 使用 /model 切换模型，/mode 切换模式。';
+            case 'config': {
+                const info = await this.tuiManager.getRuntimeInfo();
+                const cfg = this.tuiManager.getConfig();
+                return '⚙ **Celest 配置**\n\n• 模型: ' + (cfg.model || '?')
+                    + '\n• 模式: ' + (cfg.mode || 'agent')
+                    + '\n• Provider: ' + (cfg.provider || 'deepseek')
+                    + '\n• TUI 版本: ' + (info?.version || '未知')
+                    + '\n• 连接状态: ' + (this.tuiManager.connected ? '✅' : '❌');
+            }
+            case 'doctor': {
+                const lines = ['🩺 **系统诊断**'];
+                lines.push('• TUI: ' + (this.tuiManager.connected ? '✅ 正常' : '❌ 未连接'));
+                const info = await this.tuiManager.getRuntimeInfo();
+                if (info) lines.push('• TUI 版本: ' + info.version);
+                lines.push('• 工作区: ' + (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '(无)'));
+                lines.push('• 平台: ' + os.platform() + ' ' + os.arch());
+                lines.push('• Node: ' + process.version);
+                return lines.join('\n');
+            }
+            case 'auth': return '🔑 API Key: ' + (!!this.tuiManager.getConfig().apiKey ? '✅ 已配置' : '❌ 未配置');
+            case 'statusline': return '📊 状态栏设置: celest.showContextBar';
+            case 'clear': { this.clearChat(); this._turnCount = 0; return '✅ 聊天已清空。'; }
+            case 'help': return this.buildHelpText();
+            // ── 目标管理 ──
+            case 'goal': {
+                const sub = args.trim();
+                if (sub === 'clear') { const ok = await this.tuiManager.clearGoal(); return ok ? '🎯 目标已清除。' : '⚠️ 清除失败。'; }
+                if (sub === 'pause' || sub === 'resume' || sub === 'complete' || sub === 'blocked') return '🎯 目标状态变更需要 TUI v0.8.59+。';
+                const goal = await this.tuiManager.getGoal();
+                if (goal && Object.keys(goal).length > 0) return '🎯 **当前目标**\n\n```json\n' + JSON.stringify(goal, null, 2).slice(0, 2000) + '\n```';
+                if (sub) { const result = await this.tuiManager.setGoal(sub); return result ? '🎯 目标已设置。' : '⚠️ 设置失败。'; }
+                return '🎯 没有设置目标。使用 /goal <描述> 设置。';
+            }
+            // ── Hunt/Swarm/语音 ──
+            case 'hunt': return '🔍 Hunt 模式需要 TUI 引擎支持。';
+            case 'swarm': return '🐝 Swarm 模式需要 TUI 引擎支持。';
+            case 'voice':
+            case 'voice-send':
+            case 'voice-control': return '🎤 语音功能需要 TUI v0.8.59+ 支持。';
+            // ── Job/Agent 管理 ──
+            case 'jobs': {
+                const sub = args.trim();
+                if (sub === 'cancel-all') { const ok = await this.tuiManager.cancelAllJobs(); return ok ? '✅ 已取消所有任务。' : '⚠️ 取消失败。'; }
+                const jobs = await this.tuiManager.listJobs();
+                if (jobs.length === 0) return '📋 没有后台 Job。';
+                return '📋 **后台 Job** (' + jobs.length + ')\n\n' + jobs.map((j: any) => '• `' + (j.id || '').slice(0, 8) + '` [' + (j.status || '?') + ']').join('\n');
+            }
+            case 'subagents': {
+                const agents = await this.tuiManager.listSubagents();
+                if (agents.length === 0) return '🤖 没有活跃的子 Agent。';
+                return '🤖 **子 Agent** (' + agents.length + ')\n\n' + agents.map((a: any) => '• `' + (a.id || '').slice(0, 8) + '` [' + (a.status || '?') + ']').join('\n');
+            }
+            case 'models': {
+                const models = await this.tuiManager.listModels();
+                if (models && models.length > 0) {
+                    return '🤖 **可用模型** (' + models.length + ')\n\n'
+                        + models.map((m: any) => '• `' + (m.id || m.name || m) + '`' + (m.description ? ' — ' + m.description : '')).join('\n');
+                }
                 return '🤖 **可用模型**\n\n• `deepseek-v4-flash` (默认，快速)\n• `deepseek-v4-pro` (深度推理)\n\n切换: `/model <名称>`';
+            }
             case 'memory': {
                 const sub = args.trim();
-                const memPath = path.join(os.homedir(), '.deepseek', 'memory.md');
+                // Bug 14: 优先新路径 ~/.codewhale/memory.md，回退旧路径
+                const newMemPath = path.join(os.homedir(), '.codewhale', 'memory.md');
+                const oldMemPath = path.join(os.homedir(), '.deepseek', 'memory.md');
+                const memPath = fs.existsSync(newMemPath) ? newMemPath : (fs.existsSync(oldMemPath) ? oldMemPath : newMemPath);
                 if (sub === 'clear') {
                     fs.writeFileSync(memPath, '', 'utf-8');
+                    if (memPath !== oldMemPath && fs.existsSync(oldMemPath)) {
+                        fs.writeFileSync(oldMemPath, '', 'utf-8');
+                    }
                     return '🧠 记忆已清空。';
                 }
                 try {
@@ -1182,11 +1289,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     if (!content.trim()) return '🧠 记忆为空。在对话中输入 `# 记住：xxx` 添加。';
                     return '🧠 **当前记忆**\n\n```markdown\n' + content.slice(0, 3000) + '\n```';
                 } catch {
-                    return '🧠 记忆文件不存在。在 `~/.deepseek/config.toml` 中启用 `[memory] enabled = true`。';
+                    return '🧠 记忆文件不存在。在 `~/.codewhale/config.toml` 中启用 `[memory] enabled = true`。';
                 }
             }
             case 'new': {
                 await this.newSession();
+                this._turnCount = 0;
                 return '✅ 已创建新会话。';
             }
             case 'load': {
@@ -1196,7 +1304,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 return null; // resumeSession 自行处理 UI
             }
             case 'rename': {
-                const tid = (this.tuiManager as any)._currentThreadId;
+                const tid = this.tuiManager.currentThreadId;
                 if (!tid) return '⚠️ 没有活跃会话。';
                 const name = args.trim();
                 if (!name) return '⚠️ 用法: /rename <名称>';
@@ -1205,33 +1313,50 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 return '✅ 已重命名为 "' + name + '"';
             }
             case 'fork': {
-                const tid = (this.tuiManager as any)._currentThreadId;
+                const tid = this.tuiManager.currentThreadId;
                 if (!tid) return '⚠️ 没有活跃会话。';
-                const forked = await this.tuiManager.forkThread(tid);
+                // Bug 11: 支持可选 model/mode 参数
+                const parts = args.trim().split(/\s+/);
+                const forkModel = parts[0] || undefined;
+                const forkMode = parts[1] || undefined;
+                const forked = await this.tuiManager.forkThread(tid, forkModel || forkMode ? { model: forkModel, mode: forkMode } : undefined);
                 return forked ? '✅ 已创建分支会话 `' + forked.id.slice(0, 8) + '`' : '⚠️ Fork 失败。';
             }
             case 'mode': {
                 const mode = args.trim();
                 if (!mode) return '⚠️ 用法: /mode <agent|plan|yolo>';
-                this.tuiManager.setConfig({ mode } as any);
+                this.tuiManager.setConfig({ mode });
                 this.tuiManager.autoApprove = mode === 'yolo';
-                const tid = (this.tuiManager as any)._currentThreadId;
-                if (tid) await this.tuiManager.updateThreadConfig(tid, { mode }).catch(() => {});
+                const tid = this.tuiManager.currentThreadId;
+                if (tid) await this.tuiManager.updateThreadConfig(tid, { mode }).catch((e: any) => { logger.warn('[SlashCmd] /mode PATCH failed:', e.message); });
                 this.postMessage({ type: 'modeSwitched', mode });
                 return '✅ 已切换为 ' + mode + ' 模式';
             }
             case 'model': {
                 const model = args.trim();
-                if (!model) return '⚠️ 用法: /model <模型名>';
+                if (!model) {
+                    const models = await this.tuiManager.listModels();
+                    if (models && models.length > 0) {
+                        return '🤖 **可用模型** (' + models.length + ')\n\n'
+                            + models.map((m: any) => '• `' + (m.id || m.name || m) + '`' + (m.description ? ' — ' + m.description : '')).join('\n');
+                    }
+                    return '⚠️ 用法: /model <模型名>\n\n使用 /models 查看可用模型列表。';
+                }
                 this.tuiManager.setConfig({ model });
-                const tid = (this.tuiManager as any)._currentThreadId;
-                if (tid) await this.tuiManager.updateThreadConfig(tid, { model }).catch(() => {});
+                const tid = this.tuiManager.currentThreadId;
+                if (tid) await this.tuiManager.updateThreadConfig(tid, { model }).catch((e: any) => { logger.warn('[SlashCmd] /model PATCH failed:', e.message); });
                 this.postMessage({ type: 'modelSwitched', model });
                 return '✅ 已切换为 ' + model;
             }
             case 'skill': {
+                const parts = args.trim().split(/\s+/, 2);
+                if (parts[0] === 'install') {
+                    const name = parts[1];
+                    if (!name) return '⚠️ 用法: /skill install <技能名>';
+                    return '📦 技能安装功能需要 TUI 引擎支持。';
+                }
                 const name = args.trim();
-                if (!name) return '⚠️ 用法: /skill <技能名>';
+                if (!name) return '⚠️ 用法: /skill <技能名> 或 /skill install <技能名>';
                 const ok = await this.tuiManager.setSkillEnabled(name, true);
                 return ok ? '✅ 技能 "' + name + '" 已启用' : '⚠️ 切换技能失败。';
             }
@@ -1239,7 +1364,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 const usage = await this.tuiManager.getUsage({ group_by: 'thread' });
                 if (!usage) return '🔍 暂无上下文数据。';
                 const t = usage.totals;
-                return '🔍 **上下文用量**\n\n• 输入 token: ' + t.input_tokens.toLocaleString()
+                const totalTokens = t.input_tokens + t.output_tokens + t.cached_tokens + t.reasoning_tokens;
+                const pct = Math.round((totalTokens / 1_000_000) * 100);
+                const bar = this.makeProgressBar(pct);
+                return '🔍 **上下文用量**\n\n• 进度: ' + bar + ' ' + pct + '%\n• 输入 token: ' + t.input_tokens.toLocaleString()
                     + '\n• 输出 token: ' + t.output_tokens.toLocaleString()
                     + '\n• 缓存 token: ' + t.cached_tokens.toLocaleString()
                     + '\n• 推理 token: ' + t.reasoning_tokens.toLocaleString()
@@ -1268,10 +1396,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 if (!task) return '⚠️ 任务 `' + id + '` 不存在。';
                 return '📌 **任务详情**\n\n```json\n' + JSON.stringify(task, null, 2).slice(0, 2000) + '\n```';
             }
-            // 未匹配的命令 → 发给 TUI
+            // 未匹配的命令 → 返回 null，由 sendPrompt 中的 steerTurn 处理
             default:
                 return null;
         }
+    }
+
+    /** 生成 10 格进度条（可在 /context 和 checkContextUsage 中复用） */
+    private makeProgressBar(pct: number): string {
+        const width = 10;
+        const filled = Math.round(pct / (100 / width));
+        return '█'.repeat(filled) + '░'.repeat(Math.max(0, width - filled));
+    }
+
+    /** 构建帮助文本 */
+    private buildHelpText(): string {
+        return '🌙 **Celest 命令列表**\n\n'
+            + '**会话管理**\n'
+            + '• /new — 新会话\n• /load <id> — 加载会话\n• /rename <名> — 重命名\n• /fork [模型] [模式] — 分支\n• /sessions — 会话列表\n• /clear — 清空聊天\n\n'
+            + '**撤销/恢复**\n'
+            + '• /undo — 撤销上一轮\n• /restore <id> — 恢复快照\n\n'
+            + '**模式/模型**\n'
+            + '• /mode <agent|plan|yolo> — 切换模式\n• /model [名称] — 查看/切换模型\n• /models — 模型列表\n• /provider — Provider 状态\n\n'
+            + '**技能**\n'
+            + '• /skills — 技能列表\n• /skill <名> — 启用技能\n\n'
+            + '**任务管理**\n'
+            + '• /tasks — 后台任务\n• /task <id> — 任务详情\n• /jobs — 后台 Job\n• /subagents — 子 Agent 列表\n\n'
+            + '**目标**\n'
+            + '• /goal — 查看/设置目标\n• /goal clear — 清除目标\n\n'
+            + '**上下文/用量**\n'
+            + '• /context — 上下文用量\n• /compact — 压缩上下文\n• /cost — 费用统计\n• /tokens — Token 统计\n\n'
+            + '**系统**\n'
+            + '• /version — 版本信息\n• /config — 配置信息\n• /doctor — 系统诊断\n• /auth — 密钥状态\n• /mcp — MCP 状态\n• /memory — 记忆查看\n• /help — 此帮助';
     }
 
     /** 取消当前工具执行（通过 interrupt turn，等效于全局 Stop） */
@@ -1304,8 +1460,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private getWorkspaceFiles(wsRoot: string): { path: string; name: string }[] {
-        const results: { path: string; name: string }[] = [];
+    private getWorkspaceFiles(wsRoot: string): { path: string; name: string; relativePath: string; absolutePath: string }[] {
+        const results: { path: string; name: string; relativePath: string; absolutePath: string }[] = [];
         if (!wsRoot || !fs.existsSync(wsRoot)) return results;
         try {
             const walk = (dir: string, depth: number) => {
@@ -1357,17 +1513,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         let match;
         const fileContexts: string[] = [];
         const seen = new Set<string>();
+        const missingPaths: string[] = []; // Bug 2: 收集不存在的路径
         while ((match = re.exec(prompt)) !== null) {
             const filePath = match[1].trim();
             if (seen.has(filePath)) continue;
             seen.add(filePath);
             let fullPath = path.resolve(wsRoot, filePath);
+            // Bug 8: 路径穿越防护 — 确保解析后的路径在工作区内
+            const resolvedWsRoot = path.resolve(wsRoot);
+            if (!fullPath.startsWith(resolvedWsRoot)) {
+                logger.warn('[Security] path traversal blocked: ' + filePath + ' → ' + fullPath);
+                missingPaths.push(filePath);
+                continue;
+            }
             // 如果路径不存在且只有文件名（无目录分隔符），在工作区内搜索
             if (!fs.existsSync(fullPath) && !filePath.includes('\\') && !filePath.includes('/')) {
                 const found = this.findFileByName(wsRoot, filePath);
                 if (found) fullPath = found;
             }
-            if (!fs.existsSync(fullPath)) continue;
+            if (!fs.existsSync(fullPath)) {
+                missingPaths.push(filePath);
+                continue;
+            }
             const ext = filePath.split('.').pop()?.toLowerCase() || '';
             const imageExts = ['png','jpg','jpeg','gif','bmp','svg','ico','webp'];
             if (imageExts.includes(ext)) {
@@ -1382,8 +1549,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 }
             }
         }
-        if (fileContexts.length === 0) return prompt;
-        return fileContexts.join('\n\n') + '\n\n---\n用户消息:\n' + prompt;
+        // Bug 2: 当有未找到的路径时，注入提示
+        let missingNote = '';
+        if (missingPaths.length > 0) {
+            missingNote = `[⚠ 以下文件未找到或无法访问: ${missingPaths.join(', ')}]\n\n`;
+        }
+        if (fileContexts.length === 0) return missingNote + prompt;
+        return missingNote + fileContexts.join('\n\n') + '\n\n---\n用户消息:\n' + prompt;
     }
 
     /** 在工作区内按文件名搜索（浅层遍历，最大深度 3） */

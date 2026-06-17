@@ -1,7 +1,7 @@
 {
   "name": "celest",
   "author": "TheEastKoi",
-  "version": "0.1.11",
+  "version": "0.2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/TheEastKoi/celest"
@@ -87,7 +87,16 @@
         "celest.provider": {
           "type": "string",
           "default": "deepseek",
-          "description": "API provider (deepseek, openai, nvidia-nim, ollama, huggingface, arcee, moonshot, sglang, vllm, siliconflow, siliconflow-CN, fireworks, xiaomi-mimo, wanjie-ark, volcengine, openrouter, novita, atlascloud, dashscope)"
+          "enum": [
+            "deepseek", "deepseek-cn", "openai", "openai-codex",
+            "anthropic", "nvidia-nim", "ollama", "huggingface",
+            "arcee", "moonshot", "sglang", "vllm",
+            "siliconflow", "siliconflow-CN", "fireworks",
+            "xiaomi-mimo", "wanjie-ark", "volcengine",
+            "openrouter", "novita", "atlascloud", "dashscope",
+            "minimax"
+          ],
+          "description": "API provider (24 providers supported — see README for details)"
         },
         "celest.reasoningEffort": {
           "type": "string",
@@ -105,6 +114,45 @@
           "type": "string",
           "default": "",
           "description": "Override API path suffix for OpenAI-compatible endpoints (e.g. /chat/completions). Leave empty for default."
+        },
+        "celest.downloadMirror": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "github", "cnb"],
+          "description": "Binary download source: auto = auto-fallback, github = GitHub, cnb = CNB mirror (China-friendly)"
+        },
+        "celest.releaseVersion": {
+          "type": "string",
+          "default": "",
+          "description": "Pin TUI version (empty = latest), e.g. 'v0.8.61'"
+        },
+        "celest.autoCompactThreshold": {
+          "type": "number",
+          "default": 85,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Context usage percentage threshold for auto-compaction (0 = disabled)"
+        },
+        "celest.showContextBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show context usage progress bar in the Context panel"
+        },
+        "celest.allowedTools": {
+          "type": "string",
+          "default": "",
+          "description": "Comma-separated list of allowed tools (passed to TUI --allowed-tools). Leave empty for all."
+        },
+        "celest.disallowedTools": {
+          "type": "string",
+          "default": "",
+          "description": "Comma-separated list of disallowed tools (passed to TUI --disallowed-tools)"
+        },
+        "celest.maxTurns": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Maximum turns per session (0 = unlimited, passed to TUI --max-turns)"
         },
         "celest.hiddenSessions": {
           "type": "array",

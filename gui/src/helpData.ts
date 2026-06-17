@@ -10,7 +10,7 @@ export interface SlashCommand {
 
 /** 斜杠命令 — / 弹窗 + /help 面板共用 */
 export const SLASH_COMMANDS: SlashCommand[] = [
-    // ── Core 核心 (14) ──
+    // ── Core 核心 (16) ──
     { name: 'clear',       zhName: '清屏',   description: 'Clear chat display',                              category: 'core' },
     { name: 'compact',     zhName: '压缩',   description: 'Compact context (reduce tokens)',                  category: 'core' },
     { name: 'help',        zhName: '帮助',   description: 'Show help panel',                                  category: 'core' },
@@ -22,6 +22,8 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     { name: 'version',     zhName: '版本',   description: 'Show TUI version',                                 category: 'core' },
     { name: 'agent',       zhName: '子代理', description: 'Manage sub-agents',                                category: 'core' },
     { name: 'config',      zhName: '配置',   description: 'Show / edit runtime config',                       category: 'core' },
+    { name: 'change',      zhName: '变更',   description: 'Show changelog / switch model info',              category: 'core' },
+    { name: 'auth',        zhName: '认证',   description: 'Show API key authentication status',               category: 'core' },
     { name: 'links',       zhName: '链接',   description: 'Dashboard & API links',                            category: 'core' },
     { name: 'stash',       zhName: '暂存',   description: 'Stash current session',                            category: 'core' },
     { name: 'queue',       zhName: '队列',   description: 'Show queued prompts',                              category: 'core' },
@@ -41,7 +43,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     { name: 'cycle',       zhName: '周期',   description: 'Show a specific compaction cycle',                 category: 'session' },
     { name: 'cycles',      zhName: '周期列表', description: 'List compaction cycles',                         category: 'session' },
 
-    // ── Debug 调试 (11) ──
+    // ── Debug 调试 (12) ──
     { name: 'context',     zhName: '上下文', description: 'Show context window usage',                        category: 'debug' },
     { name: 'tokens',      zhName: 'Token',  description: 'Token counts for current turn',                    category: 'debug' },
     { name: 'cost',        zhName: '费用',   description: 'Cost estimate for current session',                category: 'debug' },
@@ -50,11 +52,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     { name: 'undo',        zhName: '撤销',   description: 'Undo last file change',                            category: 'debug' },
     { name: 'retry',       zhName: '重试',   description: 'Retry last turn',                                  category: 'debug' },
     { name: 'edit',        zhName: '编辑',   description: 'Open last edited file in editor',                  category: 'debug' },
-    { name: 'change',      zhName: '变更',   description: 'Show changelog',                                   category: 'debug' },
     { name: 'system',      zhName: '系统',   description: 'Show current system prompt',                       category: 'debug' },
     { name: 'recall',      zhName: '回忆',   description: 'Search compressed context',                        category: 'debug' },
+    { name: 'subagents',   zhName: '子代理', description: 'List active sub-agents',                           category: 'debug' },
+    { name: 'statusline',  zhName: '状态栏', description: 'Toggle status line display',                       category: 'debug' },
 
-    // ── Tools 工具 (12) ──
+    // ── Tools 工具 (15) ──
     { name: 'mcp',         zhName: 'MCP',    description: 'Manage MCP servers',                               category: 'tools' },
     { name: 'task',        zhName: '任务',   description: 'Manage background tasks',                          category: 'tools' },
     { name: 'jobs',        zhName: '作业',   description: 'Manage background jobs',                           category: 'tools' },
@@ -67,6 +70,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     { name: 'lsp',         zhName: '语言服务', description: 'LSP integration toggle',                         category: 'tools' },
     { name: 'memory',      zhName: '记忆',   description: 'Agent memory management',                          category: 'tools' },
     { name: 'network',     zhName: '网络',   description: 'Network permission management',                    category: 'tools' },
+    { name: 'voice',       zhName: '语音',   description: 'Start voice input / recording',                    category: 'tools' },
+    { name: 'hunt',        zhName: '搜索',   description: 'Start a hunt for files/patterns',                  category: 'tools' },
+    { name: 'swarm',       zhName: '群组',   description: 'Start a swarm of sub-agents',                      category: 'tools' },
 
     // ── Config / Other (7) ──
     { name: 'logout',      zhName: '登出',   description: 'Log out current provider',                         category: 'config' },

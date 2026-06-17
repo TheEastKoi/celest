@@ -2,6 +2,11 @@
     <div class="context-panel">
         <div class="ctx-section" v-if="usage">
             <div class="ctx-section-title">用量</div>
+            <!-- Bug 3: 上下文占用进度条 -->
+            <div class="ctx-progress-bar" v-if="usagePercent !== undefined">
+                <div class="ctx-progress-fill" :style="{ width: usagePercent + '%' }" :class="{ 'ctx-warn': usagePercent >= 70, 'ctx-danger': usagePercent >= 85 }"></div>
+            </div>
+            <div class="ctx-row" v-if="usagePercent !== undefined"><span>上下文占用</span><span>{{ usagePercent }}%（~1M 窗口）</span></div>
             <div class="ctx-row"><span>输入</span><span>{{ fmtNum(usage.totals?.input_tokens) }} tk</span></div>
             <div class="ctx-row"><span>输出</span><span>{{ fmtNum(usage.totals?.output_tokens) }} tk</span></div>
             <div class="ctx-row" v-if="usage.totals?.cached_tokens"><span>缓存命中</span><span>{{ fmtNum(usage.totals.cached_tokens) }} tk</span></div>
@@ -52,6 +57,8 @@ const props = defineProps<{
     usage: ContextUsage | null;
     workspace: ContextWorkspace | null;
     mcpCount: number | null;
+    /** Bug 3: 上下文占用百分比（由 checkContextUsage 推送） */
+    usagePercent?: number;
 }>();
 
 function fmtNum(n?: number): string {
@@ -73,4 +80,8 @@ function fmtNum(n?: number): string {
 .ctx-empty .empty-icon { font-size: 36px; margin-bottom: 8px; }
 .ctx-empty .empty-hint { font-size: 11px; margin-top: 4px; }
 .ctx-empty p { margin: 2px 0; }
+.ctx-progress-bar { height: 6px; background: var(--vscode-input-background); border-radius: 3px; margin: 4px 0 6px 0; overflow: hidden; }
+.ctx-progress-fill { height: 100%; border-radius: 3px; background: var(--vscode-charts-green); transition: width 0.3s ease; }
+.ctx-progress-fill.ctx-warn { background: var(--vscode-charts-yellow); }
+.ctx-progress-fill.ctx-danger { background: var(--vscode-charts-red); }
 </style>
