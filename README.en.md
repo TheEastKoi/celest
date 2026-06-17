@@ -23,8 +23,8 @@
 </p>
 
 <blockquote>
-<p><strong>🚧 This project has paused updates (v0.1.11 final release).</strong><br>
-Thank you all for trying and providing feedback. The repository remains open — feel free to fork and build upon it.</p>
+<p><strong>🎉 v0.2.0 Released!</strong><br>
+14 bug fixes + 4 feature phases + 380 automated tests. See <a href="#-changelog">Changelog</a>.</p>
 </blockquote>
 
 ---
@@ -36,7 +36,8 @@ Thank you all for trying and providing feedback. The repository remains open —
 | 💰 Price | **Completely Free** | Paid subscription |
 | 🔗 Connection | **Direct to DeepSeek API** | Proxy server |
 | 🧠 Engine | **CodeWhale TUI** (Rust) | Proprietary |
-| 🔧 Tool Execution | **All 37 APIs** | Limited |
+| 🔧 Tool Execution | **All 42 APIs** | Limited |
+| 🌐 Providers | **23 vendors** worldwide | 1-3 |
 | 📊 Panels | **7 real-time panels** | 1-2 |
 | 🎯 Approval Modes | **Agent/Plan/YOLO** switchable | None |
 | 📁 File References | **@[path] colored chips** | Plain text |
@@ -151,7 +152,7 @@ Open Celest panel → Set API Key → Start chatting.
 
 ### Commands
 
-- **`/` Popup** — Type `/` → browse 57 commands (supports Chinese search)
+- **`/` Popup** — Type `/` → browse 63 commands (supports Chinese search)
 - **Common**: `/clear` `/compact` `/help` `/model` `/mode` `/doctor` `/context`
 
 ### Model & Mode
@@ -169,7 +170,7 @@ celest/
 ├── src/                          # Extension backend (TypeScript)
 │   ├── extension.ts              # Entry: command registration + views
 │   ├── chatViewProvider.ts       # WebView management + message routing
-│   ├── tuiProcessManager.ts      # TUI process + HTTP/SSE 37 APIs
+│   ├── tuiProcessManager.ts      # TUI process + HTTP/SSE 42 APIs
 │   ├── sessionsTreeProvider.ts   # Session TreeView
 │   ├── secretStorage.ts          # API Key secure storage
 │   ├── binaryDownloader.ts       # GitHub Release binary download
@@ -177,7 +178,7 @@ celest/
 ├── gui/src/                      # Frontend UI (Vue 3)
 │   ├── App.vue                   # Root layout + split + approval
 │   ├── i18n.ts                   # i18n (zh-CN / en)
-│   ├── helpData.ts               # 57 commands + 5 shortcuts data
+│   ├── helpData.ts               # 63 commands + 5 shortcuts data
 │   ├── global.css                # Global styles + file chips
 │   └── components/
 │       ├── ChatView.vue          # Message list + streaming
@@ -233,6 +234,7 @@ npx vitest run
 | 6 | Full API adaptation + panel alignment + tests | ✅ |
 | 6.4 | Closed beta fixes (26 bugs + 10 features) | ✅ |
 | 6.5 | v0.1.2 — Stop button split · Scroll fixes · Session restore filter · Window isolation | ✅ |
+| 7 | v0.2.0 — 14 Bug fixes + 4 Feature phases + 380 UT | ✅ |
 
 ## 🔄 Backend Engine
 
@@ -240,10 +242,36 @@ Celest is powered by [CodeWhale TUI](https://github.com/Hmbown/CodeWhale), commu
 
 | Item | Detail |
 |------|------|
-| Engine | CodeWhale TUI v0.8.46 (Rust) |
+| Engine | CodeWhale TUI v0.8.61 (Rust) |
 | Protocol | HTTP/SSE (localhost:8787) |
 | API Coverage | 37/37 (100%) |
 | Auto-download | GitHub Release → one-click install |
+
+---
+
+## 📝 Changelog
+
+### v0.2.0 (2026-06-18)
+
+**🐛 Bug Fixes (14)**
+- Slash commands: expanded from 19 to 44, unknown commands no longer sent as raw prompts
+- @ file references: smarter regex wrapping + popup debounce + selection protection
+- Context monitoring: auto-check every 5 turns, auto-compact at 85%, reduced redundant injections
+- Mode UX: colored Agent/Plan/YOLO badges + mode-aware placeholder + first-turn guidance
+- Mode state sync: optimistic update with 3s timeout rollback
+- ContextBar crash: optional chaining for empty model arrays
+- Path traversal: `startsWith` workspace boundary check
+- Type safety: `as any` cleanup + public getters for thread/turn IDs
+- TOML parsing: smol-toml replaces ~80 lines of regex
+- /memory path: prioritizes `~/.codewhale/memory.md` over `~/.deepseek/memory.md`
+
+**✨ Features (4 Phases)**
+- **Phase 1**: Binary downloader refactor (multi-source fallback + SHA-256 + proxy + exponential backoff)
+- **Phase 2**: Added Anthropic / OpenAI-Codex / MiniMax providers (20 → 23)
+- **Phase 3**: SSE auto-reconnect + startup param expansion + goal/workflow events
+- **Phase 5**: 7 new VSCode configuration items
+
+**🧪 Tests**: 14 test files, 380 test cases passing
 
 ---
 

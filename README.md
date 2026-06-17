@@ -23,8 +23,8 @@
 </p>
 
 <blockquote>
-<p><strong>🚧 本项目已暂停更新 (v0.1.11 最终版本)。</strong><br>
-感谢所有用户的试用与反馈。代码仓库保持开放，欢迎 Fork 和二次开发。</p>
+<p><strong>🎉 v0.2.0 已发布！</strong><br>
+14 个 Bug 修复 + 4 个 Phase 功能增强 + 380 个自动化测试。详见 <a href="#-更新日志">更新日志</a>。</p>
 </blockquote>
 
 ---
@@ -36,10 +36,11 @@
 | 💰 价格 | **完全免费** | 付费订阅 |
 | 🔗 连接方式 | **直连 DeepSeek API** | 中转服务器 |
 | 🧠 后台引擎 | **CodeWhale TUI** (Rust) | 自研/闭源 |
-| 🔧 工具执行 | **全量 37 API** | 有限 |
+| 🔧 工具执行 | **全量 42 API** | 有限 |
 | 📊 右侧面板 | **7 个实时面板** | 1-2 个 |
 | 🎯 审批流程 | **Agent/Plan/YOLO** 可切换 | 无 |
-| 📁 文件引用 | **@[路径] 彩色标签** | 纯文本 |
+| 📁 文件引用 | **@[路径] 智能包装** | 纯文本 |
+| 🌐 Provider 支持 | **23 个** 国内外 AI 厂商 | 1-3 个 |
 
 ---
 
@@ -58,7 +59,11 @@
 | 📈 Usage 面板 | 用量统计，按天/模型/线程分组 |
 | 🖼️ 图像识别 | 支持图片粘贴 + OCR 文字提取（需安装 Tesseract） |
 | 📁 @ 提及 | 工作区文件自动补全 + 彩色类型标签 |
-| ⚡ / 命令 | 57 个斜杠命令，中文别名，列对齐弹窗 |
+| ⚡ / 命令 | 63 个斜杠命令，中文别名，分类弹窗 |
+| 🎨 模式 Badge | Agent/Plan/YOLO 彩色徽标 + 输入框模式感知 |
+| 📊 上下文监控 | 上下文占用进度条 + 自动压缩（85% 阈值） |
+| 🔄 SSE 重连 | 断线自动重连（指数退避 + 序列号恢复） |
+| 🛡️ 安全防护 | 路径穿越防护 + TOML 解析库替代正则 |
 | ❓ Help 面板 | 命令 + 快捷键参考 |
 | 📂 会话管理 | TreeView 会话列表 + 标题 + 删除 |
 | 🔐 审批弹窗 | 工具执行确认，低影响自动批准 |
@@ -233,17 +238,44 @@ npx vitest run
 | 6 | 全量 API 适配 + 面板对齐 + UT | ✅ |
 | 6.4 | 封闭测试修复 (26 bug + 10 feature) | ✅ |
 | 6.5 | v0.1.2 发布 — 停止按钮拆分 · 滚动修复 · 会话恢复过滤 · 窗口隔离 | ✅ |
+| 7 | v0.2.0 发布 — 14 Bug + 4 Phase + 380 UT | ✅ |
 
 ## 🔄 后台引擎
 
-Celest 基于 [CodeWhale TUI](https://github.com/Hmbown/CodeWhale)，通过 HTTP/SSE 协议与 TUI 的 37 个 Runtime API 通信。TUI 进程由 Celest 自动管理（启动/重启/更新），用户无需手动操作。
+Celest 基于 [CodeWhale TUI](https://github.com/Hmbown/CodeWhale)，通过 HTTP/SSE 协议与 TUI 的 42 个 Runtime API 通信。TUI 进程由 Celest 自动管理（启动/重启/更新），用户无需手动操作。
 
 | 项目 | 说明 |
 |------|------|
-| 引擎 | CodeWhale TUI v0.8.46 (Rust) |
+| 引擎 | CodeWhale TUI v0.8.61 (Rust) |
 | 通信 | HTTP/SSE (localhost:8787) |
-| API 覆盖 | 37/37 (100%) |
-| 自动下载 | GitHub Release → 一键安装 |
+| API 覆盖 | 42/42 (100%) |
+| 自动下载 | 多源回退（GitHub + CNB 镜像） |
+
+---
+
+## 📝 更新日志
+
+### v0.2.0 (2026-06-18)
+
+**🐛 Bug 修复 (14 项)**
+- 斜杠命令识别不全 → 补全至 44 个，未知命令不再以普通 prompt 发送
+- @ 文件引用误触发 → 正则智能包装 + 弹窗 debounce + 选区保护
+- 多轮对话降智 → 上下文自动监控 + ≥85% 自动压缩 + 减少冗余注入
+- Mode 显示不醒目 → 新增彩色 Badge + 感知 Placeholder + 首轮引导
+- 前后端 mode 不同步 → 乐观更新 + 3s 超时回滚
+- ContextBar 空模型崩溃 → 可选链保护
+- 路径穿越风险 → startsWith 工作区边界检查
+- 类型不安全 → as any 清理 + 公开 getter
+- TOML 解析易出错 → smol-toml 替代手写正则
+- /memory 路径硬编码 → 优先 ~/.codewhale/memory.md
+
+**✨ 功能增强 (4 Phase)**
+- **Phase 1**: 二进制下载器重构（多源回退 + SHA-256 校验 + 代理 + 指数退避重试）
+- **Phase 2**: 新增 Anthropic / OpenAI-Codex / MiniMax，Provider 总量 20 → 23
+- **Phase 3**: SSE 断线自动重连 + 启动参数扩展（allowed-tools/max-turns）+ goal/workflow 事件
+- **Phase 5**: 新增 7 个 VSCode 配置项（downloadMirror / autoCompactThreshold 等）
+
+**🧪 测试**: 14 个测试文件，380 个测试用例通过
 
 ---
 
